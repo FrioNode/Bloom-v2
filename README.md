@@ -48,18 +48,18 @@ A robust, multi-instance WhatsApp bot written in JavaScript, powered by Baileys.
 ## 🚀 Setup
 
 1. Clone the repository
-\`\`\`bash
+```bash
 git clone https://github.com/yourusername/Bloom-v2.git
 cd Bloom-v2
-\`\`\`
+```
 
 2. Install dependencies
-\`\`\`bash
+```bash
 npm install
-\`\`\`
+```
 
 3. Configure environment variables
-\`\`\`env
+```env
 # Core Configuration
 MONGODB_URI=your_mongodb_uri
 NODE_ENV=development
@@ -78,14 +78,14 @@ DEVNAME=your_name
 # Optional Settings
 TIMEZONE=Africa/Nairobi
 MODE=public  # public, private, or group
-\`\`\`
+```
 
 4. Start the bot
 - npm - not recomended
 
-\`\`\`bash
+```bash
 npm start 
-\`\`\`
+```
 
 - pm2 - I recomend this
 ```bash
