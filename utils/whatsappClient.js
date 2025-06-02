@@ -61,6 +61,11 @@ async function start(instanceConfig, options = {}) {
 
                     await initializeTicTacToe(Bloom);
                     log(`✅ Ticktactoe cleaner started (${instanceConfig.id})`);
+
+                    // Initialize Pokemon game
+                    const { _autoStartGame } = require('../bloom/base/games');
+                    await _autoStartGame(Bloom);
+                    log(`✅ Pokemon game started (${instanceConfig.id})`);
                 } catch (error) {
                     log(`❌ Error initializing bot services for ${instanceConfig.id}:`, error);
                 }
