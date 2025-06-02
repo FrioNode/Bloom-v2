@@ -94,16 +94,16 @@ pm2 start
 ## 📚 Documentation
 
 ### Instance Management
-- Use \`!bloom bot1/bot2/bot3\` to switch active instances
+- Use `!bloom bot1/bot2/bot3` to switch active instances
 - Only one instance handles commands at a time
 - Automatic rotation based on configured hours
 - Instance state persists in MongoDB
 
 ### User Commands
-- \`!help\` - View all commands
-- \`!menu\` - Display command menu
-- \`!stats\` - Show bot statistics
-- \`!profile\` - View your profile
+- `!help` - View all commands
+- `!menu` - Display command menu
+- `!stats` - Show bot statistics
+- `!profile` - View your profile
 - And 400+ more commands!
 
 ### Admin Commands
@@ -127,7 +127,7 @@ This project is licensed under the ISC License - see the [LICENSE](LICENSE) file
 
 ## 📞 Contact
 For support or queries:
-- Open a ticket using \`!ticket\` command in the bot
+- Open a ticket using `!ticket Message_here` command in the bot
 - GitHub Issues
 - Developer: ${devname}
 
