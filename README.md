@@ -82,14 +82,15 @@ MODE=public  # public, private, or group
 
 4. Start the bot
 - npm - not recomended
+
 \`\`\`bash
 npm start 
 \`\`\`
-or using pm2 (if installed)
+
 - pm2 - I recomend this
-\`\`\`bash
+```bash
 pm2 start 
-\`\`\`
+```
 ## 📚 Documentation
 
 ### Instance Management
