@@ -1,4 +1,4 @@
-const { botname, _reload } = require('../../colors/setup'); _reload();
+const { botname } = require('../../colors/setup');
 const { footer } = require('../../colors/mess');
 module.exports = {
     menu: {
@@ -105,4 +105,3 @@ module.exports = {
         }
     }
 };
-_reload();

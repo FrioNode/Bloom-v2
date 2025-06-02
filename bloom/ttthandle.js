@@ -1,9 +1,21 @@
-const { TicTacToe } = require('../colors/schema');
 const { v4: uuidv4 } = require('uuid');
 const cron = require('node-cron');
 const mongoose = require('mongoose');
 const activeTimeouts = new Map();
-const { mongo } = require('../colors/setup');
+const db = require('../database');
+const { createInstanceModels } = require('../colors/schema');
+const { log } = require('../utils/logger');
+
+// Cache for instance models
+const instanceModelsCache = new Map();
+
+// Helper function to get models for the current instance
+function getModels(instanceId) {
+    if (!instanceModelsCache.has(instanceId)) {
+        instanceModelsCache.set(instanceId, createInstanceModels(instanceId));
+    }
+    return instanceModelsCache.get(instanceId);
+}
 
 function renderBoard(board) {
     const emojiMap = { ' ': '⏺️', '❌': '❌', '⭕': '⭕' };
@@ -18,7 +30,9 @@ function checkWinner(board) {
         if (board[a] !== ' ' && board[a] === board[b] && board[b] === board[c]) {
             return board[a]; } }  return board.includes(' ') ? null : 'draw'; }
 
-async function createGame(senderJid, groupId) {
+async function createGame(Bloom, senderJid, groupId) {
+    const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+    
     // Check for existing ACTIVE games first
     const existingActive = await TicTacToe.findOne({
         $or: [{ 'player1.jid': senderJid }, { 'player2.jid': senderJid }],
@@ -51,21 +65,50 @@ async function createGame(senderJid, groupId) {
     return { success: true, roomId };
 }
 
-async function joinGame(senderJid, groupId) {
+async function joinGame(Bloom, senderJid, groupId) {
+    const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+    
+    // Debug log
+    console.log(`[DEBUG] Attempting to join game. GroupID: ${groupId}, Sender: ${senderJid}`);
+    
+    // Find an available game in this group
     const game = await TicTacToe.findOne({
-        groupId,
+        groupId: groupId,
         status: 'waiting',
-        'player2.jid': null,
-        'player1.jid': { $ne: senderJid } });
+        'player2.jid': null
+    });
 
-    if (!game) return { error: 'No available game to join in this group.' };
+    // Debug log game state
+    console.log('[DEBUG] Found game:', game);
+
+    if (!game) {
+        return { error: 'No available game to join in this group.' };
+    }
+
     if (game.player1.jid === senderJid) {
         return { error: '🚫 You cannot join your own game.' };
     }
 
+    // Check if player is already in another game
+    const existingGame = await TicTacToe.findOne({
+        $or: [
+            { 'player1.jid': senderJid, status: { $in: ['waiting', 'active'] } },
+            { 'player2.jid': senderJid, status: 'active' }
+        ]
+    });
+
+    if (existingGame) {
+        return { error: '🚫 You are already in another game. End it first with !ttt end' };
+    }
+
     // Update game state
-    game.player2.jid = senderJid; game.status = 'active';
-    game.currentTurn = game.player1.jid; await game.save();
+    game.player2 = {
+        jid: senderJid,
+        symbol: '⭕'
+    };
+    game.status = 'active';
+    game.currentTurn = game.player1.jid;
+    await game.save();
 
     // Clear timeout if exists
     if (activeTimeouts.has(game.roomId)) {
@@ -74,10 +117,18 @@ async function joinGame(senderJid, groupId) {
     }
 
     console.log(`[DEBUG] Game joined successfully. Current state:`, game);
-    return { success: true, roomId: game.roomId, board: game.board, player1: game.player1, player2: game.player2 };
-    return { error: '⚠️ Failed to join game. Please try again.' }; }
+    return {
+        success: true,
+        roomId: game.roomId,
+        board: game.board,
+        player1: game.player1,
+        player2: game.player2
+    };
+}
 
-async function makeMove(senderJid, position) {
+async function makeMove(Bloom, senderJid, position) {
+    const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+    
     const game = await TicTacToe.findOne({
         $or: [{ 'player1.jid': senderJid }, { 'player2.jid': senderJid }],
         status: 'active'
@@ -112,7 +163,9 @@ async function makeMove(senderJid, position) {
             name: nextPlayer.name || `Player ${nextPlayer === game.player1 ? '1' : '2'}`,
             symbol: nextPlayer === game.player1 ? '❌' : '⭕' } };; }
 
-async function endGame(senderJid) {
+async function endGame(Bloom, senderJid) {
+    const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+    
     const game = await TicTacToe.findOne({
         $or: [{ 'player1.jid': senderJid }, { 'player2.jid': senderJid }],
         status: { $ne: 'ended' } });
@@ -126,100 +179,120 @@ async function endGame(senderJid) {
         activeTimeouts.delete(game.roomId);
     }  return { success: true }; }
 
-async function cleanupStaleGames() {
-    let conn;
+async function cleanupStaleGames(Bloom) {
     try {
-        conn = mongoose.connection.readyState === 1
-        ? mongoose.connection
-        : await mongoose.createConnection(mongo).asPromise();
-
-        const model = conn.model('TicTacToe', TicTacToe.schema);
+        const { TicTacToe } = createInstanceModels(Bloom._instanceId);
         const now = new Date();
 
-        const waitingResult = await model.deleteMany({
+        const waitingResult = await TicTacToe.deleteMany({
             status: 'waiting',
             timeoutAt: { $lt: now }
         }).maxTimeMS(30000);
 
-        const endedResult = await model.deleteMany({
+        const endedResult = await TicTacToe.deleteMany({
             status: { $in: ['ended', 'active'] },
             updatedAt: { $lt: new Date(now - 24 * 60 * 60 * 1000) }
         }).maxTimeMS(30000);
 
         console.log(`♻️ Cleaned: ${waitingResult.deletedCount} waiting, ${endedResult.deletedCount} ended games`);
-
     } catch (err) {
         console.error('❌ Cleanup error:', err.message);
-    } finally {
-        if (conn && conn !== mongoose.connection) {
-            await conn.close(); }   } }
+    }
+}
 
-function initializeCleanup() {
+function initializeCleanup(Bloom) {
     const checkDB = async () => {
-        if (mongoose.connection.readyState === 1) {
-            await cleanupStaleGames();
-            cron.schedule('*/10 * * * *', cleanupStaleGames);
-            console.log('🔄 Cleanup for TicTacoe: (every 10m)');
-        } else { setTimeout(checkDB, 5000); }
-    };  checkDB(); }
-
-    async function tttmove(Bloom, message, fulltext){
         try {
-            const sender = message.key.participant || message.key.remoteJid;
-            const group = message.key.remoteJid;
-            const move = parseInt(fulltext.trim());
+            await cleanupStaleGames(Bloom);
+            cron.schedule('*/10 * * * *', () => cleanupStaleGames(Bloom));
+            console.log('🔄 Cleanup for TicTacoe: (every 10m)');
+        } catch (error) {
+            console.error('❌ Failed to initialize cleanup:', error);
+            setTimeout(() => checkDB(), 5000);
+        }
+    };
+    checkDB();
+}
 
-            // Validate
-            if (isNaN(move) || move < 1 || move > 9) {
-                return await Bloom.sendMessage(group, { text: '⚠️ Please enter a number between 1-9' }); }
-            const game = await TicTacToe.findOne({
-                groupId: group,
-                status: 'active'
-            }).select('player1 player2 currentTurn board status').lean();
+async function tttmove(Bloom, message, fulltext){
+    try {
+        const sender = message.key.participant || message.key.remoteJid;
+        const group = message.key.remoteJid;
+        const move = parseInt(fulltext.trim());
 
-            if (!game) { return await Bloom.sendMessage(group, { text: '❌ No active game found. Start a new game with !ttt' }); }
-            const players = [game.player1.jid, game.player2.jid];
-            if (!players.includes(sender)) { return await Bloom.sendMessage(group, { text: '🚫 You are not a player in this game' }); }
+        // Validate
+        if (isNaN(move) || move < 1 || move > 9) {
+            return await Bloom.sendMessage(group, { text: '⚠️ Please enter a number between 1-9' }); }
+        const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+        const game = await TicTacToe.findOne({
+            groupId: group,
+            status: 'active'
+        }).select('player1 player2 currentTurn board status').lean();
 
-            const result = await makeMove(sender, move);
+        if (!game) { return await Bloom.sendMessage(group, { text: '❌ No active game found. Start a new game with !ttt' }); }
+        const players = [game.player1.jid, game.player2.jid];
+        if (!players.includes(sender)) { return await Bloom.sendMessage(group, { text: '🚫 You are not a player in this game' }); }
 
-            if (result.error) { return await Bloom.sendMessage(group, { text: result.error }); }
-            const boardText = renderBoard(result.board);
+        const result = await makeMove(Bloom, sender, move);
 
-            if (result.status === 'win') {
-                await Bloom.sendMessage(group, {
-                    text: `🎉 @${result.winnerPrefix} (${result.winnerName}) wins!\n\n${boardText}`,
-                                        mentions: [result.winnerJid]
-                });
-                await endGame(group);
-            }
-            else if (result.status === 'draw') {
-                await Bloom.sendMessage(group, { text: `🤝 Game ended in draw!\n\n${boardText}` });
-                await endGame(group);
-            }
-            else {
-                await Bloom.sendMessage(group, {
-                    text: `${boardText}\n\n🎯 @${result.nextPlayer.jid.split('@')[0]}'s turn (${result.nextPlayer.symbol})`,
-                                        mentions: [result.nextPlayer.jid]  }); }
+        if (result.error) { return await Bloom.sendMessage(group, { text: result.error }); }
+        const boardText = renderBoard(result.board);
 
-        } catch (err) {
-            console.error('TTT Move Error:', err);
-            const group = message?.key?.remoteJid;
-            if (group) {
-                await Bloom.sendMessage(group, { text: '⚠️ An error occurred during the move' }); } } }
-// --- foregn code reminders
+        if (result.status === 'win') {
+            await Bloom.sendMessage(group, {
+                text: `🎉 @${result.winnerPrefix} (${result.winnerName}) wins!\n\n${boardText}`,
+                                    mentions: [result.winnerJid]
+            });
+            await endGame(Bloom, group);
+        }
+        else if (result.status === 'draw') {
+            await Bloom.sendMessage(group, { text: `🤝 Game ended in draw!\n\n${boardText}` });
+            await endGame(Bloom, group);
+        }
+        else {
+            await Bloom.sendMessage(group, {
+                text: `${boardText}\n\n🎯 @${result.nextPlayer.jid.split('@')[0]}'s turn (${result.nextPlayer.symbol})`,
+                                    mentions: [result.nextPlayer.jid]  }); }
 
-const { Reminder } = require('../colors/schema');
-function startReminderChecker(Bloom) {
-    setInterval(async () => {
-        const now = new Date();
-        const dueReminders = await Reminder.find({ remindAt: { $lte: now }, reminded: false });
-        for (const r of dueReminders) {
+    } catch (err) {
+        console.error('TTT Move Error:', err);
+        const group = message?.key?.remoteJid;
+        if (group) {
+            await Bloom.sendMessage(group, { text: '⚠️ An error occurred during the move' }); } } }
+
+async function startReminderChecker(Bloom) {
+    if (!Bloom._instanceId) {
+        log('❌ No instance ID found for reminder checker');
+        return;
+    }
+
+    try {
+        // Get instance-specific models
+        const { Reminder } = createInstanceModels(Bloom._instanceId);
+        log(`✅ Starting reminder checker for instance ${Bloom._instanceId}`);
+        
+        setInterval(async () => {
             try {
-                await Bloom.sendMessage(r.userId, { text: `⏰ Reminder: ${r.text}` });
-                r.reminded = true;
-                await r.save();
-            } catch (e) { console.error('Failed to send reminder:', e); } } }, 60000); }
+                const now = new Date();
+                const dueReminders = await Reminder.find({ remindAt: { $lte: now }, reminded: false });
+                
+                for (const r of dueReminders) {
+                    try {
+                        await Bloom.sendMessage(r.userId, { text: `⏰ Reminder: ${r.text}` });
+                        r.reminded = true;
+                        await r.save();
+                    } catch (e) { 
+                        log(`Failed to send reminder for ${Bloom._instanceId}:`, e); 
+                    } 
+                }
+            } catch (err) {
+                log(`Error checking reminders for ${Bloom._instanceId}:`, err);
+            }
+        }, 60000);
+    } catch (error) {
+        log(`Failed to initialize reminder checker for ${Bloom._instanceId}:`, error);
+        throw error;
+    }
+}
 
-cleanupStaleGames(); initializeCleanup();
-module.exports = {  createGame, joinGame, makeMove, endGame, renderBoard, checkWinner, cleanupStaleGames, tttmove, startReminderChecker };
+module.exports = {  createGame, joinGame, makeMove, endGame, renderBoard, checkWinner, initializeCleanup, tttmove, startReminderChecker };

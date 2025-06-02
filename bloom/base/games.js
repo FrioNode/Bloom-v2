@@ -1,11 +1,10 @@
 const fs = require('fs');
-const mongoose = require('mongoose');
-const { User, Pokemon, TicTacToe, connectDB } = require('../../colors/schema');
-const { createGame, joinGame, endGame, renderBoard } = require('../ttthandle');
+const { createInstanceModels } = require('../../colors/schema');
+const { createGame, joinGame, endGame, renderBoard, makeMove } = require('../ttthandle');
 const { pokemon } = require('../../colors/pokemon');
-const { openchat }= require('../../colors/setup');
+const { openchat } = require('../../colors/setup');
 
- connectDB('Game Module')
+// Pokemon game configuration
 const pokemonNames = ['Pikachu', 'Charmander', 'Bulbasaur', 'Squirtle', 'Jigglypuff', 'Meowth', 'Psyduck', 'Eevee', 'Snorlax', 'Mewtwo'];
 const animals = ['lion', 'buffalo', 'fox', 'monkey', 'ant', 'rabbit', 'dinosaur', 'zebra'];
 const sizes = ['small', 'medium', 'big'];
@@ -27,16 +26,93 @@ const gambleMultipliers = {
     white: Math.floor(Math.random() * 1101) - 100
 };
 
+// Cache for instance models
+const instanceModelsCache = new Map();
+
+// Helper function to get models for the current instance
+function getModels(instanceId) {
+    if (!instanceModelsCache.has(instanceId)) {
+        instanceModelsCache.set(instanceId, createInstanceModels(instanceId));
+    }
+    return instanceModelsCache.get(instanceId);
+}
+
+// Helper function to get or create user
+async function getOrCreateUser(User, userId, name = null) {
+    try {
+        let user = await User.findById(userId);
+        if (!user && name) {
+            user = new User({
+                _id: userId,
+                name: name,
+                walletBalance: 0,
+                bankBalance: 0,
+                inventory: {
+                    mining: [],
+                    magic: [],
+                    fishing: [],
+                    healing: [],
+                    animals: [],
+                    stones: [],
+                    pokemons: []
+                }
+            });
+            await user.save();
+        }
+        return user;
+    } catch (error) {
+        console.error('Error in getOrCreateUser:', error);
+        return null;
+    }
+}
+
+function calculateTransactionFee(arg) {
+    let feePercentage = 0.02;
+    if (arg <= 1000) feePercentage = 0.05;
+    else if (arg <= 10000) feePercentage = 0.03;
+    return arg * feePercentage;
+}
+
 module.exports = {
     bal: {
         type: 'economy',
         desc: 'Check your wallet and bank balance',
         run: async (Bloom, message, fulltext) => {
-            const senderID = message.key.participant || message.key.remoteJid;
-            const user = await User.findById(senderID);
-            if (!user) return Bloom.sendMessage(message.key.remoteJid, { text: 'You are not registered in the economy. Please register first.\n\n!reg <username>' }, { quoted: message });
-            const balanceInfo = { user: user.name, wallet: user.walletBalance, bank: user.bankBalance };
-            return Bloom.sendMessage(message.key.remoteJid, { text: `- ${balanceInfo.user} | Balance:\n╭──────── 💰\n│>  Wallet: ${balanceInfo.wallet} \n│>  Bank: ${balanceInfo.bank} \n╰───────── 💳` }, { quoted: message });
+            try {
+                const { User } = getModels(Bloom._instanceId);
+                const senderID = message.key.participant || message.key.remoteJid;
+                
+                const user = await getOrCreateUser(User, senderID);
+                if (!user) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Database Error: Could not fetch your balance.' 
+                    }, { quoted: message });
+                }
+
+                if (!user.name) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You are not registered in the economy. Please register first.\n\n!reg <username>' 
+                    }, { quoted: message });
+                }
+
+                const balanceInfo = {
+                    user: user.name,
+                    wallet: user.walletBalance.toLocaleString(),
+                    bank: user.bankBalance.toLocaleString()
+                };
+
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: `👤 *${balanceInfo.user}'s Balance*\n\n` +
+                          `💰 *Wallet:* ${balanceInfo.wallet}\n` +
+                          `🏦 *Bank:* ${balanceInfo.bank}\n\n` +
+                          `💵 *Total:* ${(user.walletBalance + user.bankBalance).toLocaleString()}`
+                }, { quoted: message });
+            } catch (error) {
+                console.error('Balance check error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while checking your balance.' 
+                }, { quoted: message });
+            }
         }
     },
 
@@ -44,21 +120,45 @@ module.exports = {
         type: 'economy',
         desc: 'Register or update your economy profile',
         run: async (Bloom, message, fulltext) => {
-            const senderID = message.key.participant || message.key.remoteJid;
-            const arg = fulltext.trim().split(/\s+/)[1];
-            let name = arg || generateRandomName();
+            try {
+                const { User } = getModels(Bloom._instanceId);
+                const senderID = message.key.participant || message.key.remoteJid;
+                const arg = fulltext.trim().split(/\s+/)[1];
+                let name = arg || generateRandomName();
 
-            if (!isValidName(name)) return Bloom.sendMessage(message.key.remoteJid, { text: 'Invalid name. Name must be at least 4 characters long, contain only letters, and no symbols.' }, { quoted: message });
+                if (!isValidName(name)) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'Invalid name. Name must be at least 4 characters long, contain only letters, and no symbols.' 
+                    }, { quoted: message });
+                }
 
-            let user = await User.findById(senderID);
-            if (user) {
-                user.name = name;
-                await user.save();
-                return Bloom.sendMessage(message.key.remoteJid, { text: `Welcome back! Your name has been updated to ${name}.` }, { quoted: message });
-            } else {
-                user = new User({ _id: senderID, name: name });
-                await user.save();
-                return Bloom.sendMessage(message.key.remoteJid, { text: `Welcome, ${name}! You have been successfully registered in the economy.` }, { quoted: message });
+                let user = await User.findById(senderID);
+                if (user) {
+                    const oldName = user.name;
+                    user.name = name;
+                    await user.save();
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: `✅ Name updated successfully!\n\n*Old Name:* ${oldName}\n*New Name:* ${name}` 
+                    }, { quoted: message });
+                } else {
+                    user = await getOrCreateUser(User, senderID, name);
+                    if (!user) {
+                        return await Bloom.sendMessage(message.key.remoteJid, { 
+                            text: '❌ Registration failed. Please try again.' 
+                        }, { quoted: message });
+                    }
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: `✨ *Welcome to the Economy!*\n\n` +
+                              `👤 *Name:* ${name}\n` +
+                              `💰 *Starting Balance:* 0\n\n` +
+                              `Use !help economy to see available commands!`
+                    }, { quoted: message });
+                }
+            } catch (error) {
+                console.error('Registration error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred during registration.' 
+                }, { quoted: message });
             }
         }
     },
@@ -67,21 +167,62 @@ module.exports = {
         type: 'economy',
         desc: 'Deposit money into your bank account',
         run: async (Bloom, message, fulltext) => {
-            const senderID = message.key.participant || message.key.remoteJid;
-            const arg = parseFloat(fulltext.trim().split(/\s+/)[1]);
+            try {
+                const { User } = getModels(Bloom._instanceId);
+                const senderID = message.key.participant || message.key.remoteJid;
+                const arg = parseFloat(fulltext.trim().split(/\s+/)[1]);
 
-            if (isNaN(arg)) return Bloom.sendMessage(message.key.remoteJid, { text: 'Invalid input. You must deposit a valid number.' }, { quoted: message });
+                if (isNaN(arg) || arg <= 0) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Please specify a valid amount to deposit.' 
+                    }, { quoted: message });
+                }
 
-            const user = await User.findById(senderID);
-            if (user.walletBalance < arg) return Bloom.sendMessage(message.key.remoteJid, { text: `Insufficient funds in your wallet to deposit. You have ${user.walletBalance} available, but you tried to deposit ${arg}.` }, { quoted: message });
-            if (arg > 100000) return Bloom.sendMessage(message.key.remoteJid, 'You cannot deposit more than 100,000.');
+                const user = await getOrCreateUser(User, senderID);
+                if (!user?.name) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You need to register first. Use !reg <username>' 
+                    }, { quoted: message });
+                }
 
-            user.walletBalance -= arg;
-            user.bankBalance += arg;
-            user.transactionHistory.push({ type: 'deposit', arg, result: 'success' });
-            await user.save();
+                if (user.walletBalance < arg) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: `❌ Insufficient funds!\n\n` +
+                              `💰 *Wallet Balance:* ${user.walletBalance.toLocaleString()}\n` +
+                              `💸 *Amount to Deposit:* ${arg.toLocaleString()}`
+                    }, { quoted: message });
+                }
 
-            Bloom.sendMessage(message.key.remoteJid, {text: `- Dear ${user.name} You have successfully deposited ${arg} 💰 into your bank account. New wallet balance: ${user.walletBalance}, New bank balance: ${user.bankBalance}`},{ quoted: message });
+                if (arg > 100000) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ You cannot deposit more than 100,000 at once.' 
+                    }, { quoted: message });
+                }
+
+                // Update balances
+                user.walletBalance -= arg;
+                user.bankBalance += arg;
+                user.transactionHistory.push({
+                    type: 'deposit',
+                    amount: arg,
+                    timestamp: new Date(),
+                    result: 'success'
+                });
+
+                await user.save();
+
+                return await Bloom.sendMessage(message.key.remoteJid, {
+                    text: `✅ *Deposit Successful!*\n\n` +
+                          `💰 *Amount:* ${arg.toLocaleString()}\n` +
+                          `👛 *New Wallet Balance:* ${user.walletBalance.toLocaleString()}\n` +
+                          `🏦 *New Bank Balance:* ${user.bankBalance.toLocaleString()}`
+                }, { quoted: message });
+            } catch (error) {
+                console.error('Deposit error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while processing your deposit.' 
+                }, { quoted: message });
+            }
         }
     },
 
@@ -89,26 +230,69 @@ module.exports = {
         type: 'economy',
         desc: 'Withdraw money from your bank account',
         run: async (Bloom, message, fulltext) => {
-            const senderID = message.key.participant || message.key.remoteJid;
-            const arg = parseFloat(fulltext.trim().split(/\s+/)[1]);
+            try {
+                const { User } = getModels(Bloom._instanceId);
+                const senderID = message.key.participant || message.key.remoteJid;
+                const arg = parseFloat(fulltext.trim().split(/\s+/)[1]);
 
-            if (!fulltext || isNaN(arg)) return Bloom.sendMessage(message.key.remoteJid, { text: 'Invalid input. You must specify a valid number to withdraw.' }, { quoted: message });
+                if (isNaN(arg) || arg <= 0) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Please specify a valid amount to withdraw.' 
+                    }, { quoted: message });
+                }
 
-            const user = await User.findById(senderID);
-            if (user.bankBalance < arg) return Bloom.sendMessage(message.key.remoteJid, { text: 'Insufficient funds in your bank account.' }, { quoted: message });
-            if (arg > 500000) return Bloom.sendMessage(message.key.remoteJid, { text: 'You cannot withdraw more than 500,000.' }, { quoted: message });
+                const user = await getOrCreateUser(User, senderID);
+                if (!user?.name) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You need to register first. Use !reg <username>' 
+                    }, { quoted: message });
+                }
 
-            const transactionFee = calculateTransactionFee(arg);
-            const totalAmountToWithdraw = arg + transactionFee;
+                if (arg > 500000) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ You cannot withdraw more than 500,000 at once.' 
+                    }, { quoted: message });
+                }
 
-            if (user.bankBalance < totalAmountToWithdraw) return Bloom.sendMessage(message.key.remoteJid, { text: 'Insufficient funds to cover the withdrawal and transaction fee.' }, { quoted: message });
+                const transactionFee = calculateTransactionFee(arg);
+                const totalAmount = arg + transactionFee;
 
-            user.bankBalance -= totalAmountToWithdraw;
-            user.walletBalance += arg;
-            user.transactionHistory.push({ type: 'withdraw', arg, transactionFee, result: 'success' });
-            await user.save();
+                if (user.bankBalance < totalAmount) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: `❌ Insufficient funds!\n\n` +
+                              `🏦 *Bank Balance:* ${user.bankBalance.toLocaleString()}\n` +
+                              `💸 *Withdrawal Amount:* ${arg.toLocaleString()}\n` +
+                              `💰 *Transaction Fee:* ${transactionFee.toLocaleString()}\n` +
+                              `📊 *Total Required:* ${totalAmount.toLocaleString()}`
+                    }, { quoted: message });
+                }
 
-            return Bloom.sendMessage(message.key.remoteJid, { text: `You have successfully withdrawn ${arg} 💰 to your wallet. Transaction fee: ${transactionFee} 💰. New bank balance: ${user.bankBalance}, New wallet balance: ${user.walletBalance}` }, { quoted: message });
+                // Update balances
+                user.bankBalance -= totalAmount;
+                user.walletBalance += arg;
+                user.transactionHistory.push({
+                    type: 'withdraw',
+                    amount: arg,
+                    fee: transactionFee,
+                    timestamp: new Date(),
+                    result: 'success'
+                });
+
+                await user.save();
+
+                return await Bloom.sendMessage(message.key.remoteJid, {
+                    text: `✅ *Withdrawal Successful!*\n\n` +
+                          `💸 *Amount:* ${arg.toLocaleString()}\n` +
+                          `💰 *Transaction Fee:* ${transactionFee.toLocaleString()}\n` +
+                          `👛 *New Wallet Balance:* ${user.walletBalance.toLocaleString()}\n` +
+                          `🏦 *New Bank Balance:* ${user.bankBalance.toLocaleString()}`
+                }, { quoted: message });
+            } catch (error) {
+                console.error('Withdrawal error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while processing your withdrawal.' 
+                }, { quoted: message });
+            }
         }
     },
 
@@ -116,46 +300,109 @@ module.exports = {
         type: 'economy',
         desc: 'Transfer money to another user',
         run: async (Bloom, message, fulltext) => {
-            const senderID = message.key.participant || message.key.remoteJid;
-            const value = fulltext.trim().split(/\s+/)[2];
-            const arg = parseFloat(fulltext.trim().split(/\s+/)[1]);
+            try {
+                const { User } = getModels(Bloom._instanceId);
+                const senderID = message.key.participant || message.key.remoteJid;
+                const args = fulltext.trim().split(/\s+/);
+                const amount = parseFloat(args[1]);
+                const phoneNumber = args[2];
 
-            if (isNaN(arg)) return Bloom.sendMessage(message.key.remoteJid, { text: 'Invalid amount. You must specify a valid number to transfer.' }, { quoted: message });
+                if (isNaN(amount) || amount <= 0) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Please specify a valid amount to transfer.' 
+                    }, { quoted: message });
+                }
 
-            let receiver = null;
-            if (value && /^[0-9]{10,15}$/.test(value)) {
-                const receiverId = await convertPhoneNumberToJID(value);
-                receiver = await User.findById(receiverId);
+                const sender = await getOrCreateUser(User, senderID);
+                if (!sender?.name) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You need to register first. Use !reg <username>' 
+                    }, { quoted: message });
+                }
+
+                // Find receiver
+                let receiver = null;
+                if (phoneNumber && /^[0-9]{10,15}$/.test(phoneNumber)) {
+                    const receiverId = await convertPhoneNumberToJID(phoneNumber);
+                    receiver = await User.findById(receiverId);
+                } else if (message.message?.extendedTextMessage?.contextInfo?.participant) {
+                    const quotedUserId = message.message.extendedTextMessage.contextInfo.participant;
+                    receiver = await User.findById(quotedUserId);
+                }
+
+                if (!receiver?.name) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Receiver not found or not registered in the economy.' 
+                    }, { quoted: message });
+                }
+
+                if (amount > 150000) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ You cannot transfer more than 150,000 at once.' 
+                    }, { quoted: message });
+                }
+
+                const transactionFee = calculateTransactionFee(amount);
+                const totalAmount = amount + transactionFee;
+
+                if (sender.walletBalance < totalAmount) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: `❌ Insufficient funds!\n\n` +
+                              `👛 *Your Balance:* ${sender.walletBalance.toLocaleString()}\n` +
+                              `💸 *Transfer Amount:* ${amount.toLocaleString()}\n` +
+                              `💰 *Transaction Fee:* ${transactionFee.toLocaleString()}\n` +
+                              `📊 *Total Required:* ${totalAmount.toLocaleString()}`
+                    }, { quoted: message });
+                }
+
+                // Perform transfer
+                sender.walletBalance -= totalAmount;
+                receiver.walletBalance += amount;
+
+                // Record transaction history
+                const timestamp = new Date();
+                sender.transactionHistory.push({
+                    type: 'transfer_sent',
+                    amount: amount,
+                    fee: transactionFee,
+                    recipient: receiver._id,
+                    timestamp,
+                    result: 'success'
+                });
+
+                receiver.transactionHistory.push({
+                    type: 'transfer_received',
+                    amount: amount,
+                    sender: sender._id,
+                    timestamp,
+                    result: 'success'
+                });
+
+                // Save both users
+                await Promise.all([sender.save(), receiver.save()]);
+
+                // Notify both users
+                await Bloom.sendMessage(message.key.remoteJid, {
+                    text: `✅ *Transfer Successful!*\n\n` +
+                          `👥 *To:* ${receiver.name}\n` +
+                          `💸 *Amount:* ${amount.toLocaleString()}\n` +
+                          `💰 *Fee:* ${transactionFee.toLocaleString()}\n` +
+                          `👛 *New Balance:* ${sender.walletBalance.toLocaleString()}`
+                }, { quoted: message });
+
+                await Bloom.sendMessage(receiver._id, {
+                    text: `💰 *Transfer Received!*\n\n` +
+                          `👥 *From:* ${sender.name}\n` +
+                          `💸 *Amount:* ${amount.toLocaleString()}\n` +
+                          `👛 *New Balance:* ${receiver.walletBalance.toLocaleString()}`
+                });
+
+            } catch (error) {
+                console.error('Transfer error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while processing your transfer.' 
+                }, { quoted: message });
             }
-
-            if (!receiver && message.message?.extendedTextMessage?.contextInfo?.participant) {
-                const quotedUserId = message.message.extendedTextMessage.contextInfo.participant;
-                receiver = await User.findById(quotedUserId);
-            }
-
-
-            if (!receiver) return Bloom.sendMessage(message.key.remoteJid, { text: 'The specified receiver does not exist in the economy database.' }, { quoted: message });
-
-            const user = await User.findById(senderID);
-            if (user.walletBalance < arg) return Bloom.sendMessage(message.key.remoteJid, { text: 'Insufficient funds in your wallet.' }, { quoted: message });
-            if (arg > 150000) return Bloom.sendMessage(message.key.remoteJid, { text: 'You cannot transfer more than 150,000.' }, { quoted: message });
-
-            const transactionFee = calculateTransactionFee(arg);
-            const totalAmountToTransfer = arg + transactionFee;
-
-            if (user.walletBalance < totalAmountToTransfer) return Bloom.sendMessage(message.key.remoteJid, { text: 'Insufficient funds to cover both the transfer and transaction fee.' }, { quoted: message });
-
-            user.walletBalance -= totalAmountToTransfer;
-            receiver.walletBalance += arg;
-            user.transactionHistory.push({ type: 'transfer', arg, transactionFee, result: 'success' });
-            receiver.transactionHistory.push({ type: 'transfer', arg, transactionFee, result: 'received' });
-
-            await user.save();
-            await receiver.save();
-
-            await Bloom.sendMessage(message.key.remoteJid, { text: `You successfully transferred ${arg} 💰 to ${receiver.name}. Transaction fee: ${transactionFee} 💰. New wallet balance: ${user.walletBalance}` }, { quoted: message });
-            console.log(receiver._id);
-            await Bloom.sendMessage(receiver._id, { text: `You received ${arg} 💰 from ${user.name}.` });
         }
     },
 
@@ -163,18 +410,52 @@ module.exports = {
         type: 'economy',
         desc: 'View available items in the shop',
         run: async (Bloom, message) => {
-            const senderID = message.key.participant || message.key.remoteJid;
-            const user = await User.findById(senderID);
+            try {
+                const { User } = getModels(Bloom._instanceId);
+                const senderID = message.key.participant || message.key.remoteJid;
+                
+                const user = await getOrCreateUser(User, senderID);
+                if (!user?.name) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You need to register first. Use !reg <username>' 
+                    }, { quoted: message });
+                }
 
-            if (!user) return Bloom.sendMessage(message.key.remoteJid, { text: 'You are not registered in the economy. Please register first.' }, { quoted: message });
+                // Create categorized shop display
+                const categories = {
+                    mining: '⛏️ *Mining Tools*',
+                    magic: '🪄 *Magic Items*',
+                    fishing: '🎣 *Fishing Gear*',
+                    healing: '🧪 *Healing Items*'
+                };
 
-            let shopMessage = `Welcome ${user.name} to the shop! 🎉\nHere are the available items:\n`;
-            for (const [item, price] of Object.entries(shopItems)) {
-                const emoji = itemEmojis[item] || "🛒";
-                shopMessage += `${emoji} ${item.replace(/_/g, ' ')}: ${price} 💰\n`;
+                let shopMessage = `🏪 *Welcome to the Shop*\n` +
+                                `👤 *User:* ${user.name}\n` +
+                                `💰 *Your Balance:* ${user.walletBalance.toLocaleString()}\n\n`;
+
+                // Group items by category
+                for (const [category, title] of Object.entries(categories)) {
+                    shopMessage += `${title}\n`;
+                    for (const [item, price] of Object.entries(shopItems)) {
+                        if (itemCategories[item] === category) {
+                            const emoji = itemEmojis[item] || "🛒";
+                            shopMessage += `${emoji} ${item.replace(/_/g, ' ')}: ${price.toLocaleString()} 💰\n`;
+                        }
+                    }
+                    shopMessage += '\n';
+                }
+
+                shopMessage += `\n💡 *To buy:* !buy <item_name>`;
+
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: shopMessage 
+                }, { quoted: message });
+            } catch (error) {
+                console.error('Shop error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while accessing the shop.' 
+                }, { quoted: message });
             }
-
-            Bloom.sendMessage(message.key.remoteJid, { text: shopMessage }, { quoted: message });
         }
     },
 
@@ -182,31 +463,85 @@ module.exports = {
         type: 'economy',
         desc: 'Purchase an item from the shop',
         run: async (Bloom, message, fulltext) => {
-            const senderID = message.key.participant || message.key.remoteJid;
-            const itemName = fulltext.trim().split(/\s+/)[1]?.toLowerCase();
-            const user = await User.findById(senderID);
-            const itemPrice = shopItems[itemName];
+            try {
+                const { User } = getModels(Bloom._instanceId);
+                const senderID = message.key.participant || message.key.remoteJid;
+                const itemName = fulltext.trim().split(/\s+/)[1]?.toLowerCase();
 
-            if (!itemPrice) return Bloom.sendMessage(message.key.remoteJid, {text: 'Item not found in the shop.'}, {quoted: message});
-            if (user.walletBalance < itemPrice) return Bloom.sendMessage(message.key.remoteJid, {text: 'You do not have enough funds to buy this item.'}, {quoted: message});
-
-            user.walletBalance -= itemPrice;
-            const category = itemCategories[itemName];
-
-            if (category) {
-                if (category === "mining" || category === "fishing" || category === "healing") {
-                    user.inventory[category].push({ name: itemName, miningUses: 0 });
-                } else {
-                    user.inventory[category].push(itemName);
+                if (!itemName) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Please specify an item to buy.\n\nUse !shop to see available items.' 
+                    }, { quoted: message });
                 }
-            } else {
-                return Bloom.sendMessage(message.key.remoteJid, {text: 'Error: Item category not found.'}, {quoted: message});
+
+                const user = await getOrCreateUser(User, senderID);
+                if (!user?.name) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You need to register first. Use !reg <username>' 
+                    }, { quoted: message });
+                }
+
+                const itemPrice = shopItems[itemName];
+                if (!itemPrice) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Invalid item. Use !shop to see available items.' 
+                    }, { quoted: message });
+                }
+
+                if (user.walletBalance < itemPrice) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: `❌ Insufficient funds!\n\n` +
+                              `💰 *Your Balance:* ${user.walletBalance.toLocaleString()}\n` +
+                              `💵 *Item Price:* ${itemPrice.toLocaleString()}\n` +
+                              `📊 *Missing:* ${(itemPrice - user.walletBalance).toLocaleString()}`
+                    }, { quoted: message });
+                }
+
+                // Get the category for the item
+                const category = itemCategories[itemName];
+                if (!category) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Item category not found.' 
+                    }, { quoted: message });
+                }
+
+                // Update user's inventory and balance
+                user.walletBalance -= itemPrice;
+                if (!user.inventory[category]) {
+                    user.inventory[category] = [];
+                }
+                user.inventory[category].push({
+                    name: itemName,
+                    purchasePrice: itemPrice,
+                    purchaseDate: new Date()
+                });
+
+                // Record the purchase in transaction history
+                user.transactionHistory.push({
+                    type: 'purchase',
+                    item: itemName,
+                    amount: itemPrice,
+                    category: category,
+                    timestamp: new Date(),
+                    result: 'success'
+                });
+
+                await user.save();
+
+                const emoji = itemEmojis[itemName] || "🛒";
+                return await Bloom.sendMessage(message.key.remoteJid, {
+                    text: `✅ *Purchase Successful!*\n\n` +
+                          `${emoji} *Item:* ${itemName.replace(/_/g, ' ')}\n` +
+                          `💰 *Price:* ${itemPrice.toLocaleString()}\n` +
+                          `👛 *New Balance:* ${user.walletBalance.toLocaleString()}\n\n` +
+                          `Use !inventory to view your items!`
+                }, { quoted: message });
+            } catch (error) {
+                console.error('Purchase error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while processing your purchase.' 
+                }, { quoted: message });
             }
-
-            user.transactionHistory.push({ type: 'buy', arg: itemPrice, item: itemName, result: 'success' });
-            await user.save();
-
-            Bloom.sendMessage(message.key.remoteJid, { text: `You bought a ${itemEmojis[itemName] || ''}${itemName} for ${itemPrice} 💰.` }, {quoted: message});
         }
     },
 
@@ -214,6 +549,7 @@ module.exports = {
         type: 'economy',
         desc: 'View your inventory',
         run: async (Bloom, message) => {
+            const { User } = getModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
             let inventoryMessage = `╭───── ${user.name} ─────\n│-- _Your inventory_ --\n`;
@@ -295,27 +631,83 @@ module.exports = {
         type: 'economy',
         desc: 'Go hunting for animals',
         run: async (Bloom, message) => {
-            const senderID = message.key.participant || message.key.remoteJid;
-            const user = await User.findById(senderID);
-            const currentDate = new Date();
-            const lastCatchTime = new Date(user.lastZooCatch);
-            const timeDifference = currentDate - lastCatchTime;
+            try {
+                const { User } = getModels(Bloom._instanceId);
+                const senderID = message.key.participant || message.key.remoteJid;
+                
+                // Get or create user
+                let user = await User.findById(senderID);
+                if (!user) {
+                    return Bloom.sendMessage(
+                        message.key.remoteJid,
+                        { text: 'You need to register first to use the hunt command. Use !reg <n> to register.' },
+                        { quoted: message }
+                    );
+                }
 
-            if (timeDifference < 600000) return Bloom.sendMessage(message.key.remoteJid, {text: 'You need to wait a bit before you can catch another animal! Remember hunting is illegal.'}, {quoted: message});
+                const currentDate = new Date();
+                const cooldownTime = 600000; // 10 minutes in milliseconds
 
-            user.lastZooCatch = currentDate;
-            const randomAnimalIndex = Math.floor(Math.random() * animals.length);
-            const animal = animals[randomAnimalIndex];
-            const size = sizes[Math.floor(Math.random() * sizes.length)];
-            const basePrice = Math.floor(Math.random() * 1000) + 100;
-            const priceMultiplier = size === 'small' ? 0.5 : size === 'medium' ? 1 : 1.5;
-            const finalPrice = basePrice * priceMultiplier;
+                // Check cooldown
+                if (user.lastZooCatch) {
+                    const timeDifference = currentDate - new Date(user.lastZooCatch);
+                    if (timeDifference < cooldownTime) {
+                        const remainingTime = Math.ceil((cooldownTime - timeDifference) / 60000);
+                        return Bloom.sendMessage(
+                            message.key.remoteJid,
+                            { text: `🕒 You need to wait ${remainingTime} minute(s) before hunting again!` },
+                            { quoted: message }
+                        );
+                    }
+                }
 
-            user.inventory.animals.push({ name: animal, value: finalPrice });
-            user.transactionHistory.push({type: 'catch_animal', arg: finalPrice, animal: animal, result: 'caught' });
-            await user.save();
+                // Generate hunt results
+                const randomAnimalIndex = Math.floor(Math.random() * animals.length);
+                const animal = animals[randomAnimalIndex];
+                const size = sizes[Math.floor(Math.random() * sizes.length)];
+                const basePrice = Math.floor(Math.random() * 1000) + 100;
+                const priceMultiplier = size === 'small' ? 0.5 : size === 'medium' ? 1 : 1.5;
+                const finalPrice = Math.floor(basePrice * priceMultiplier);
 
-            Bloom.sendMessage(message.key.remoteJid, {text: `You went for a hunt and caught a ${size} ${animalEmojis[animal]} ${animal} worth ${finalPrice} 💰.`}, {quoted: message});
+                // Update user data
+                user = await User.findByIdAndUpdate(
+                    senderID,
+                    {
+                        $set: { lastZooCatch: currentDate },
+                        $push: {
+                            'inventory.animals': {
+                                name: animal,
+                                value: finalPrice,
+                                caught: currentDate
+                            },
+                            transactionHistory: {
+                                type: 'catch_animal',
+                                arg: finalPrice,
+                                animal: animal,
+                                result: 'caught',
+                                timestamp: currentDate
+                            }
+                        }
+                    },
+                    { new: true }
+                );
+
+                const emoji = animalEmojis[animal] || '🦁';
+                await Bloom.sendMessage(
+                    message.key.remoteJid,
+                    {
+                        text: `🎯 You went hunting and caught a ${size} ${emoji} ${animal} worth ${finalPrice} 💰!`
+                    },
+                    { quoted: message }
+                );
+            } catch (error) {
+                console.error('Hunt command error:', error);
+                await Bloom.sendMessage(
+                    message.key.remoteJid,
+                    { text: '❌ An error occurred while hunting. Please try again later.' },
+                    { quoted: message }
+                );
+            }
         }
     },
 
@@ -323,6 +715,7 @@ module.exports = {
         type: 'economy',
         desc: 'Go fishing for aquatic animals',
         run: async (Bloom, message) => {
+            const { User } = getModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
             const currentDate = new Date();
@@ -351,6 +744,7 @@ module.exports = {
         type: 'economy',
         desc: 'Gamble your money on colors',
         run: async (Bloom, message, fulltext) => {
+            const { User } = getModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const parts = fulltext.trim().split(/\s+/);
             const color = parts[1];
@@ -390,6 +784,7 @@ module.exports = {
         type: 'economy',
         desc: 'Work to earn money',
         run: async (Bloom, message) => {
+            const { User } = getModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
 
@@ -443,6 +838,7 @@ module.exports = {
         type: 'economy',
         desc: 'Claim your daily reward',
         run: async (Bloom, message) => {
+            const { User } = getModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
 
@@ -473,6 +869,7 @@ module.exports = {
         type: 'economy',
         desc: 'Sell items from your inventory',
         run: async (Bloom, message, fulltext) => {
+            const { User } = getModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const arg = fulltext.trim().split(/\s+/)[1];
             const user = await User.findById(senderID);
@@ -515,6 +912,7 @@ module.exports = {
         type: 'economy',
         desc: 'Mine for stones using your tools',
         run: async (Bloom, message) => {
+            const { User } = getModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
 
@@ -564,6 +962,7 @@ module.exports = {
         type: 'economy',
         desc: 'Reset your Economy account (warning: irreversible)',
         run: async (Bloom, message) => {
+            const { User } = getModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
 
@@ -586,6 +985,7 @@ module.exports = {
         type: 'pokemon',
         desc: 'Catch a Pokémon that has appeared',
         run: async (Bloom, message, fulltext) => {
+            const { Pokemon } = getModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const arg = fulltext.trim().split(/\s+/)[1];
             const pokemon = await Pokemon.findOne({ name: { $regex: new RegExp('^' + arg + '$', 'i') } });
@@ -619,6 +1019,7 @@ module.exports = {
         desc: 'View your Pokémon collection',
         run: async (Bloom, message) => {
             try {
+                const { User } = getModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 const user = await User.findById(senderID);
 
@@ -647,6 +1048,7 @@ module.exports = {
         type: 'pokemon',
         desc: 'View any Pokémon details by name or ID',
         run: async (Bloom, message, fulltext) => {
+            const { Pokemon } = getModels(Bloom._instanceId);
             const input = fulltext.trim().split(/\s+/)[1]?.toLowerCase();
             const chatId = message.key.remoteJid;
 
@@ -711,7 +1113,7 @@ module.exports = {
                 }
 
                 if (!arg) {
-                    const res = await createGame(sender, groupId);
+                    const res = await createGame(Bloom, sender, groupId);
                     if (res.error) {
                         return await Bloom.sendMessage(groupId, { text: res.error });
                     }
@@ -726,7 +1128,7 @@ module.exports = {
                 }
 
                 if (arg === 'join') {
-                    const res = await joinGame(sender, groupId);
+                    const res = await joinGame(Bloom, sender, groupId);
                     if (res.error) {
                         return await Bloom.sendMessage(groupId, { text: res.error });
                     }
@@ -738,18 +1140,18 @@ module.exports = {
                         `⭕: @${res.player2.name || res.player2.jid.split('@')[0]}\n\n` +
                         `${board}\n\n` +
                         `▶️ @${res.player1.jid.split('@')[0]}'s turn first (❌)`,
-                                                   mentions: [res.player1.jid, res.player2.jid]
+                        mentions: [res.player1.jid, res.player2.jid]
                     });
                 }
 
                 if (arg === 'end') {
-                    const res = await endGame(sender);
+                    const res = await endGame(Bloom, sender);
                     if (res.error) {
                         return await Bloom.sendMessage(groupId, { text: res.error });
                     }
                     return await Bloom.sendMessage(groupId, {
                         text: `✅ Game ended by @${sender.split('@')[0]}`,
-                                                   mentions: [sender]
+                        mentions: [sender]
                     });
                 }
                 return await Bloom.sendMessage(groupId, {
@@ -769,72 +1171,69 @@ module.exports = {
                 }
             }
         }
+    },
+    async _autoStartGame(Bloom) {
+        const { Pokemon } = getModels(Bloom._instanceId);
+        let isRunning = true;
+
+        const gameLoop = async () => {
+            if (!isRunning) return;
+            try {
+                await loadPokemons(Bloom);
+                await handleExpiredPokemons(Bloom);
+            } catch (error) {
+                console.error('Pokemon game error:', error);
+            }
+            setTimeout(gameLoop, 60000);
+        };
+
+        gameLoop();
+        return () => { isRunning = false; };
     }
 };
 
-
-
-
-// 👇 Auto-start function — NOT exported above
-async function startGame(Bloom) {
-    console.log('✅ Pokémon game started!');
-    const interval1 = setInterval(() => loadPokemons(Bloom), 30 * 60 * 1000);
-    const interval2 = setInterval(() => handleExpiredPokemons(Bloom), 30 * 60 * 1000);
-
-    return () => {
-        clearInterval(interval1);
-        clearInterval(interval2);
-        console.log('🛑 Pokémon game stopped.');
-    };
-}
-
-// ✅ Export only this separately
-module.exports._autoStartGame = startGame;
+// Helper functions
 
 async function loadPokemons(Bloom) {
-    let randomPokemon;
+    const { Pokemon } = getModels(Bloom._instanceId);
     try {
-        randomPokemon = await pokemon();
+        const count = await Pokemon.countDocuments();
+        if (count < 5) {
+            const newPokemon = pokemon[Math.floor(Math.random() * pokemon.length)];
+            const timeout = new Date(Date.now() + 5 * 60 * 1000);
+            
+            const pokemonDoc = new Pokemon({
+                name: newPokemon.name,
+                weight: newPokemon.weight,
+                height: newPokemon.height,
+                image: newPokemon.image,
+                description: newPokemon.description,
+                timeout
+            });
+            
+            await pokemonDoc.save();
+            await Bloom.sendMessage(openchat, {
+                image: { url: newPokemon.image },
+                caption: `🎮 A wild ${newPokemon.name} appeared!\nUse !catch ${newPokemon.name} to catch it!\nExpires in 5 minutes.`
+            });
+        }
     } catch (error) {
-        console.error("Error fetching pokemon", error);
-        return;
+        console.error('Error loading pokemons:', error);
     }
-
-    const newPokemon = new Pokemon({
-        name: randomPokemon.name,
-        image: randomPokemon.image,
-        height: randomPokemon.height,
-        weight: randomPokemon.weight,
-        description: randomPokemon.description,
-        timeout: new Date(Date.now() + 10 * 60 * 1000)
-    });
-
-    await newPokemon.save();
-    console.log(`Pokémon ${newPokemon.name} added to the database.`);
-
-    await Bloom.sendMessage(openchat, {
-        image: { url: newPokemon.image },
-        caption: `A new Pokémon has appeared! Use *!catch ${newPokemon.name}* to add it to your inventory.\n\nClue: ${newPokemon.description}`
-    });
 }
 
 async function handleExpiredPokemons(Bloom) {
-    const expiredPokemons = await Pokemon.find({ timeout: { $lt: new Date() } });
-
-    if (expiredPokemons.length > 0) {
+    const { Pokemon } = getModels(Bloom._instanceId);
+    try {
+        const expiredPokemons = await Pokemon.find({ timeout: { $lt: new Date() } });
         for (const pokemon of expiredPokemons) {
-            await Bloom.sendMessage(openchat, {
-                text: `No one claimed the Pokémon ${pokemon.name}. It has expired.\n\nDescription: ${pokemon.description}\nHeight: ${pokemon.height}\t\t\tWeight: ${pokemon.weight}`
-            });
-
-            await Pokemon.deleteOne({ _id: pokemon._id });
-            console.log(`Expired Pokémon ${pokemon.name} has been removed from the database.`);
+            await Pokemon.findByIdAndDelete(pokemon._id);
+            await Bloom.sendMessage(openchat, { text: `⌛ The wild ${pokemon.name} has fled!` });
         }
-    } else {
-        console.log('No expired Pokémon found.');
+    } catch (error) {
+        console.error('Error handling expired pokemons:', error);
     }
 }
-
 
 async function convertPhoneNumberToJID(value) {
     return `${value}@s.whatsapp.net`;
@@ -850,9 +1249,16 @@ function isValidName(name) {
     return regex.test(name);
 }
 
-function calculateTransactionFee(arg) {
-    let feePercentage = 0.02;
-    if (arg <= 1000) feePercentage = 0.05;
-    else if (arg <= 10000) feePercentage = 0.03;
-    return arg * feePercentage;
+/* Helper function to render the TTT board
+function renderBoard(board) {
+    const cells = board.map(cell => cell || '　');
+    return `╭───┬───┬───╮
+│ ${cells[0]} │ ${cells[1]} │ ${cells[2]} │
+├───┼───┼───┤
+│ ${cells[3]} │ ${cells[4]} │ ${cells[5]} │
+├───┼───┼───┤
+│ ${cells[6]} │ ${cells[7]} │ ${cells[8]} │
+╰───┴───┴───╯`;
 }
+
+*/

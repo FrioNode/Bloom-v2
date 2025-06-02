@@ -1,15 +1,18 @@
-const { sudochat, _reload } = require('./setup'); _reload();
+const { sudochat } = require('./setup');
 const mess = require('./mess');
 const fs = require('fs').promises;
 const path = require('path');
+const config = require('../config');
 
-// ID Utilities
-let BOT_JID;
-let BOT_LID;
+// ID Utilities - Now using a Map to store IDs for each instance
+const BOT_IDS = new Map();
 
-const loadCreds = async () => {
+const loadCreds = async (instanceId) => {
     try {
-        const credsPath = path.join(__dirname, '../heart/creds.json');
+        const instance = config.instances.find(i => i.id === instanceId);
+        if (!instance) throw new Error(`Invalid instance ID: ${instanceId}`);
+        
+        const credsPath = path.join(__dirname, '..', instance.sessionDir, 'creds.json');
         const data = await fs.readFile(credsPath, 'utf-8');
         return JSON.parse(data);
     } catch {
@@ -24,17 +27,37 @@ const normalizeId = (jid) => {
 };
 
 const initBotId = async (Bloom) => {
-    const creds = await loadCreds();
+    // Get instance ID from Bloom object
+    const instanceId = Bloom._instanceId;
+    if (!instanceId) {
+        console.warn('Warning: No instance ID found in Bloom object');
+        return;
+    }
+
+    const creds = await loadCreds(instanceId);
+    let botJid, botLid;
 
     if (creds?.me) {
-        BOT_JID = normalizeId(creds.me.id);
-        BOT_LID = normalizeId(creds.me.lid).replace('@s.whatsapp.net', '@lid');
+        botJid = normalizeId(creds.me.id);
+        botLid = normalizeId(creds.me.lid).replace('@s.whatsapp.net', '@lid');
     } else {
-        BOT_JID = normalizeId(Bloom.user?.id);
-        BOT_LID = Bloom.me?.lid
-        ? normalizeId(Bloom.me.lid).replace('@s.whatsapp.net', '@lid')
-        : BOT_JID.replace('@s.whatsapp.net', '@lid');
+        botJid = normalizeId(Bloom.user?.id);
+        botLid = Bloom.me?.lid
+            ? normalizeId(Bloom.me.lid).replace('@s.whatsapp.net', '@lid')
+            : botJid.replace('@s.whatsapp.net', '@lid');
     }
+
+    // Store IDs for this instance
+    BOT_IDS.set(instanceId, { jid: botJid, lid: botLid });
+};
+
+const getBotIds = (Bloom) => {
+    const instanceId = Bloom._instanceId;
+    if (!instanceId) {
+        console.warn('Warning: No instance ID found in Bloom object');
+        return { jid: null, lid: null };
+    }
+    return BOT_IDS.get(instanceId) || { jid: null, lid: null };
 };
 
 const idsMatch = (a, b) => {
@@ -61,8 +84,9 @@ const isBotAdmin = async (Bloom, message) => {
     const metadata = await fetchGroupMetadata(Bloom, message);
     if (!metadata) return false;
 
+    const { jid: BOT_JID, lid: BOT_LID } = getBotIds(Bloom);
     const botMatch = metadata.participants.find(p =>
-    idsMatch(p.id, BOT_JID) || (BOT_LID && idsMatch(p.id, BOT_LID))
+        idsMatch(p.id, BOT_JID) || (BOT_LID && idsMatch(p.id, BOT_LID))
     );
     return ['admin', 'superadmin'].includes(botMatch?.admin);
 };
@@ -84,6 +108,7 @@ const isBloomKing = (sender, message) => {
 };
 
 const isGroupAdminContext = async (Bloom, message) => {
+    const { jid: BOT_JID, lid: BOT_LID } = getBotIds(Bloom);
     if (!BOT_JID) await initBotId(Bloom);
 
     const metadata = await fetchGroupMetadata(Bloom, message);
@@ -91,7 +116,7 @@ const isGroupAdminContext = async (Bloom, message) => {
 
     const senderId = message.key.participant || message.participant;
     const botParticipant = metadata.participants.find(p =>
-    idsMatch(p.id, BOT_JID) || (BOT_LID && idsMatch(p.id, BOT_LID))
+        idsMatch(p.id, BOT_JID) || (BOT_LID && idsMatch(p.id, BOT_LID))
     );
     const senderParticipant = metadata.participants.find(p => idsMatch(p.id, senderId));
 

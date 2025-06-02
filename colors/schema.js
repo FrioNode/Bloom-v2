@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
-const { mongo } = require('./setup');
+// const { mongo } = require('./setup');
+const { createModel } = require('../database');
+
 const pokemonSchema = new mongoose.Schema({
     name: { type: String, required: true },
     weight: { type: Number, required: true },
@@ -14,6 +16,9 @@ const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     walletBalance: { type: Number, default: 0 },
     bankBalance: { type: Number, default: 0 },
+    isBanned: { type: Boolean, default: false },
+    banReason: { type: String },
+    lastActivity: { type: Date, default: Date.now },
     inventory: {
         mining: [{
             name: { type: String, required: true },
@@ -81,7 +86,6 @@ const settingsSchema = new mongoose.Schema({
     warns: { type: Map, of: Number, default: {} }
 });
 
-
 const userCounterSchema = new mongoose.Schema({
     user: { type: String, required: true, unique: true },
     count: { type: Number, default: 1 },
@@ -93,7 +97,6 @@ const afkSchema = new mongoose.Schema({
     reason: { type: String, default: '' },
     since: { type: Date, default: Date.now }
 });
-
 
 const TicTacToeSchema = new mongoose.Schema({
     roomId: { type: String, required: true, unique: true },
@@ -114,6 +117,7 @@ const TicTacToeSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now },
     timeoutAt: { type: Date }
 });
+
 const reminderSchema = new mongoose.Schema({
     userId: { type: String, required: true },
     chatId: { type: String, required: true },
@@ -122,46 +126,20 @@ const reminderSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now },
     reminded: { type: Boolean, default: false }
 });
-let isConnected = false;
 
-
-async function connectDB(source = 'Unknown Module') {
-    if (isConnected) {
-        console.log(`✓ ${source}: Already connected to MongoDB`);
-        return;
-    }
-
-    try {
-        await mongoose.connect(mongo, {
-            serverSelectionTimeoutMS: 60000,
-            socketTimeoutMS: 60000,
-        });
-        isConnected = true;
-        console.log(`✓ ${source}: Connected to MongoDB`);
-    } catch (err) {
-        console.error(`❌ MongoDB Connection Error in ${source}: ${err.message}`);
-        console.error(err.stack);
-        throw err;
-    }
-}
-
-module.exports = { connectDB };
-
-
-// ------------------ SCHEMAS & MODELS ------------------ //
-const ticketSchema = new mongoose.Schema(
-    {
-        id: { type: String, required: true, unique: true },
-        issue: { type: String, required: true },
-        user: { type: String, required: true },
-        status: {
-            type: String,
-            default: 'open',
-                enum: ['open', 'ongoing', 'resolved']
-        },
-    },
-    { timestamps: true }
-);
+const ticketSchema = new mongoose.Schema({
+    ticketId: { type: String, required: true, unique: true },
+    userId: { type: String, required: true },
+    subject: { type: String, required: true },
+    status: { type: String, enum: ['open', 'closed'], default: 'open' },
+    messages: [{
+        sender: { type: String, required: true },
+        content: { type: String, required: true },
+        timestamp: { type: Date, default: Date.now }
+    }],
+    createdAt: { type: Date, default: Date.now },
+    closedAt: { type: Date }
+});
 
 const counterSchema = new mongoose.Schema({
     name: { type: String, required: true, unique: true },
@@ -169,44 +147,42 @@ const counterSchema = new mongoose.Schema({
     letter: { type: String, default: 'A' }
 });
 
+const botSettingsSchema = new mongoose.Schema({
+    _id: { type: String, default: 'global' },
+    maintenanceMode: { type: Boolean, default: false },
+    lastMaintenanceUpdate: { type: Date, default: Date.now },
+    maintenanceReason: { type: String, default: '' },
+    activeInstance: { type: String, default: 'bot1' }  // Stores the ID of the currently active instance
+}, { timestamps: true });
 
-// ---- TICKET ID GENERATOR //
-async function TicketId() {
+async function connectDB(moduleName) {
     try {
-        const counter = await Counter.findOneAndUpdate(
-            { name: 'ticket' }, {},
-            { upsert: true, new: true }
-        );
-
-        let { number, letter } = counter;
-        const id = `BB-${number.toString().padStart(4, '0')}${letter}`;
-
-        if (letter === 'Z') { letter = 'A'; number += 1;
-        } else {
-            letter = String.fromCharCode(letter.charCodeAt(0) + 1);
-        }
-
-        counter.number = number;
-        counter.letter = letter;
-        await counter.save();
-
-        return id;
-    } catch (err) {
-        console.error('Error generating ticket ID:', err.message);
-        throw err;
+        // Connection is now handled in database.js
+        console.log(`✅ [${moduleName}] Connected to MongoDB`);
+    } catch (error) {
+        console.error(`❌ [${moduleName}] MongoDB connection error:`, error);
+        throw error;
     }
 }
 
+// Export models with instance-specific creation
+function createInstanceModels(instanceId) {
+    return {
+        Pokemon: createModel(instanceId, 'Pokemon', pokemonSchema),
+        User: createModel(instanceId, 'User', userSchema),
+        Settings: createModel(instanceId, 'Settings', settingsSchema),
+        Exp: createModel(instanceId, 'Exp', expSchema),
+        AFK: createModel(instanceId, 'AFK', afkSchema),
+        TicTacToe: createModel(instanceId, 'TicTacToe', TicTacToeSchema),
+        Reminder: createModel(instanceId, 'Reminder', reminderSchema),
+        Ticket: createModel(instanceId, 'Ticket', ticketSchema),
+        Counter: createModel(instanceId, 'Counter', counterSchema),
+        UserCounter: createModel(instanceId, 'UserCounter', userCounterSchema),
+        BotSettings: createModel(instanceId, 'BotSettings', botSettingsSchema)
+    };
+}
 
-const Ticket = mongoose.models.Ticket || mongoose.model('Ticket', ticketSchema);
-const Counter = mongoose.models.Counter || mongoose.model('Counter', counterSchema);
-const Reminder = mongoose.models.Reminder || mongoose.model('Reminder', reminderSchema);
-const TicTacToe = mongoose.models.TicTacToe || mongoose.model('TicTacToe', TicTacToeSchema);
-const AFK = mongoose.models.AFK || mongoose.model('AFK', afkSchema);
-const Pokemon = mongoose.models.Pokemon || mongoose.model('Pokemon', pokemonSchema);
-const UserCounter = mongoose.models.UserCounter || mongoose.model('UserCounter', userCounterSchema);
-const User = mongoose.models.User || mongoose.model('User', userSchema);
-const Settings = mongoose.models.Settings || mongoose.model('Settings', settingsSchema);
-const Exp = mongoose.models.Exp || mongoose.model('Exp', expSchema);
-
-module.exports = { Pokemon, UserCounter, User , Settings, Exp, AFK, TicTacToe, Reminder, Ticket, TicketId, connectDB };
+module.exports = {
+    createInstanceModels,
+    connectDB
+};

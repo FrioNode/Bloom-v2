@@ -1,37 +1,76 @@
 const mongoose = require('mongoose');
-const { Settings, UserCounter, AFK, connectDB } = require('../colors/schema');
+const { createInstanceModels, connectDB } = require('../colors/schema');
 const mess = require('../colors/mess');
 const { isSenderAdmin, isBotAdmin } = require('../colors/auth');
 const { node, sudochat, mode } = require('../colors/setup');
 const { trackUsage } = require('../colors/exp');
-const { tttmove,startReminderChecker } = require('./ttthandle');
+const { tttmove, initializeCleanup, startReminderChecker } = require('./ttthandle');
+const maintenanceMiddleware = require('./middleware/maintenance');
+const banCheckMiddleware = require('./middleware/bancheck');
+const instanceCheckMiddleware = require('./middleware/instancecheck');
 const fs = require('fs'), path = require('path');
 
-connectDB('Brain Module');
-let commandRegistry = {}, activeBloomInstance = null;
+// Initialize models map for each instance
+const instanceModels = new Map();
+let commandRegistry = {}; // Global command registry
+let activeBloomInstance = null;
 
-async function initCommandHandler(Bloom) { activeBloomInstance = Bloom; commandRegistry = {}; await loadCommands(); console.log('♻️ Command handler initialized'); }
+function getModels(instanceId) {
+    if (!instanceModels.has(instanceId)) {
+        instanceModels.set(instanceId, createInstanceModels(instanceId));
+    }
+    return instanceModels.get(instanceId);
+}
+
+// Initialize TicTacToe cleanup for each instance
+function initializeTicTacToe(Bloom) {
+    initializeCleanup(Bloom);
+}
+
+async function initCommandHandler(Bloom) {
+    const instanceId = Bloom._instanceId;
+    const models = getModels(instanceId);
+    activeBloomInstance = Bloom;
+    commandRegistry = {};
+    await loadCommands();
+    console.log('♻️ Command handler initialized');
+}
 
 async function loadCommands() {
-    try { const currentDir = __dirname;
-        const subdirs = fs.readdirSync(currentDir).filter(file => { try { return fs.statSync(path.join(currentDir, file)).isDirectory(); } catch (e) { return false; } });
+    try {
+        const currentDir = __dirname;
+        const subdirs = fs.readdirSync(currentDir).filter(file => {
+            try {
+                return fs.statSync(path.join(currentDir, file)).isDirectory();
+            } catch (e) {
+                return false;
+            }
+        });
         for (const dir of subdirs) {
             try {
                 const files = fs.readdirSync(path.join(currentDir, dir));
                 for (const file of files) {
                     if (file.endsWith('.js') && !file.startsWith('_')) {
-                    try { const modulePath = path.join(currentDir, dir, file);
+                        try {
+                            const modulePath = path.join(currentDir, dir, file);
                             delete require.cache[require.resolve(modulePath)];
                             const module = require(modulePath);
                             for (const [cmd, data] of Object.entries(module)) {
                                 if (cmd.startsWith('_')) continue;
                                 if (typeof data?.run === 'function') commandRegistry[cmd] = data;
-                            } } catch (err) { } } } } catch (e) { } }
-console.log(`📦 Total loaded commands: ${Object.keys(commandRegistry).length}`); } catch (e) { } }
+                            }
+                        } catch (err) { }
+                    }
+                }
+            } catch (e) { }
+        }
+        console.log(`📦 Total loaded commands: ${Object.keys(commandRegistry).length}`);
+    } catch (e) { }
+}
 
 async function bloomCm(Bloom, message, fulltext, commands) {
     const senderJid = message.key?.participant || message.key?.remoteJid;
-    if (senderJid) await trackUsage(senderJid);
+    if (senderJid && Bloom._instanceId) await trackUsage(senderJid, Bloom._instanceId);
 
     let commandName = fulltext.split(' ')[0].toLowerCase();
     const commandModule = commands[commandName];
@@ -42,17 +81,39 @@ async function bloomCm(Bloom, message, fulltext, commands) {
     } catch (err) {
         console.error(`❌ Fatal error: Command "${commandName}" failed:`, err);
         await Bloom.sendMessage(message.key.remoteJid, {
-            text: '❗ An error occurred while executing the command.' });  } }
+            text: '❗ An error occurred while executing the command.'
+        });
+    }
+}
 
 function setupHotReload() {
     if (node === 'production') return;
-    const commandDirs = fs.readdirSync(__dirname).filter(file => { try { return fs.statSync(path.join(__dirname, file)).isDirectory() && !file.startsWith('_') && file !== 'colors'; } catch (e) { return false; } });
-    commandDirs.forEach(dir => { const dirPath = path.join(__dirname, dir);
-        fs.watch(dirPath, { recursive: false }, (eventType, filename) => { if (!filename || !filename.endsWith('.js')) return; reloadFile(path.join(dirPath, filename)); }); });
-    fs.watch(__dirname, { recursive: false }, (eventType, filename) => { if (!filename || !filename.endsWith('.js') || filename === 'brain.js' || filename.startsWith('_')) return; reloadFile(path.join(__dirname, filename)); });
+    const commandDirs = fs.readdirSync(__dirname).filter(file => {
+        try {
+            return fs.statSync(path.join(__dirname, file)).isDirectory() && !file.startsWith('_') && file !== 'colors';
+        } catch (e) {
+            return false;
+        }
+    });
+    commandDirs.forEach(dir => {
+        const dirPath = path.join(__dirname, dir);
+        fs.watch(dirPath, { recursive: false }, (eventType, filename) => {
+            if (!filename || !filename.endsWith('.js')) return;
+            reloadFile(path.join(dirPath, filename));
+        });
+    });
+    fs.watch(__dirname, { recursive: false }, (eventType, filename) => {
+        if (!filename || !filename.endsWith('.js') || filename === 'brain.js' || filename.startsWith('_')) return;
+        reloadFile(path.join(__dirname, filename));
+    });
     async function reloadFile(filePath) {
-        try { delete require.cache[require.resolve(filePath)]; require(filePath); if (!filePath.includes('colors')) await loadCommands(); }
-        catch (err) { } } }
+        try {
+            delete require.cache[require.resolve(filePath)];
+            require(filePath);
+            if (!filePath.includes('colors')) await loadCommands();
+        } catch (err) { }
+    }
+}
 
 function extractCommand(message) {
     try {
@@ -61,7 +122,10 @@ function extractCommand(message) {
         const fulltext = text.trim().replace(/^\s*!/, '').replace(/\s+/g, ' ');
         const command = fulltext.split(' ')[0].toLowerCase();
         return { command, fulltext };
-    } catch (e) { return { command: '', fulltext: '' }; } }
+    } catch (e) {
+        return { command: '', fulltext: '' };
+    }
+}
 
 async function checkMode(Bloom, message) {
     try {
@@ -79,15 +143,23 @@ async function checkMode(Bloom, message) {
             else user.count += 1;
             if (user.count >= 3) {
                 await Bloom.sendMessage(sender, { text: mess.blocked });
-                await Bloom.updateBlockStatus(sender, 'block');  return false;
+                await Bloom.updateBlockStatus(sender, 'block');
+                return false;
             }
             await user.save();
             await Bloom.sendMessage(sender, { text: mess.privateMode });
-            return false;  }
+            return false;
+        }
 
         if (mode === 'group' && (!isGroup && sender !== sudochat)) {
             await Bloom.sendMessage(sender, { text: mess.groupOnly });
-            return false;  } return true; } catch (e) { return false; } }
+            return false;
+        }
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
 
 async function checkMessageType(Bloom, message) {
     try {
@@ -98,8 +170,8 @@ async function checkMessageType(Bloom, message) {
         if (!sender) return true;
         const settings = await Settings.findOne({ group: groupId });
         if (!settings) return true;
-        const senderIsAdmin = await isSenderAdmin(Bloom,message);
-        const botIsAdmin = await isBotAdmin(Bloom,message);
+        const senderIsAdmin = await isSenderAdmin(Bloom, message);
+        const botIsAdmin = await isBotAdmin(Bloom, message);
         const messageType = Object.keys(message.message)[0] || '';
         const text = message.message?.conversation || message.message?.extendedTextMessage?.text || '';
         const linkRegex = /(?:https?:\/\/|www\.)[^\s]+|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/[^\s]*)?/gi;
@@ -107,12 +179,15 @@ async function checkMessageType(Bloom, message) {
             const matches = text.match(linkRegex);
             if (matches && matches.length > 0) {
                 if (botIsAdmin) await Bloom.groupParticipantsUpdate(groupId, [sender], 'remove');
-                return false;  } }
+                return false;
+            }
+        }
 
         if (settings.noImage && messageType === 'imageMessage' && !senderIsAdmin) {
             if (!(settings.warns instanceof Map)) settings.warns = new Map(Object.entries(settings.warns || {}));
             const safeSender = sender.replace(/\./g, '(dot)');
-            const currentWarn = settings.warns.get(safeSender) || 0, newWarn = currentWarn + 1;
+            const currentWarn = settings.warns.get(safeSender) || 0;
+            const newWarn = currentWarn + 1;
             settings.warns.set(safeSender, newWarn);
             if (newWarn >= 3) {
                 if (botIsAdmin) await Bloom.groupParticipantsUpdate(groupId, [sender], 'remove');
@@ -121,7 +196,13 @@ async function checkMessageType(Bloom, message) {
                 return false;
             }
             await Bloom.sendMessage(groupId, { text: `⚠️ @${sender.split('@')[0]}, no images allowed! Warning ${newWarn}/3.`, mentions: [sender] });
-            await settings.save(); }  return true;  } catch (err) { return true; } }
+            await settings.save();
+        }
+        return true;
+    } catch (err) {
+        return true;
+    }
+}
 
 async function checkCommandTypeFlags(Bloom, message) {
     try {
@@ -134,9 +215,19 @@ async function checkCommandTypeFlags(Bloom, message) {
         if (!cmdData) return true;
         const settings = await Settings.findOne({ group: groupId });
         if (!settings) return true;
-        if (cmdData.type === 'game' && !settings.gameEnabled) { await Bloom.sendMessage(groupId, { text: mess.games }); return false; }
-        if (cmdData.type === 'nsfw' && !settings.nsfwEnabled) { await Bloom.sendMessage(groupId, { text: mess.nsfwoff }); return false; }
-        return true;   } catch (e) { return true; } }
+        if (cmdData.type === 'game' && !settings.gameEnabled) {
+            await Bloom.sendMessage(groupId, { text: mess.games });
+            return false;
+        }
+        if (cmdData.type === 'nsfw' && !settings.nsfwEnabled) {
+            await Bloom.sendMessage(groupId, { text: mess.nsfwoff });
+            return false;
+        }
+        return true;
+    } catch (e) {
+        return true;
+    }
+}
 
 async function checkGroupCommandLock(Bloom, message) {
     try {
@@ -152,8 +243,14 @@ async function checkGroupCommandLock(Bloom, message) {
 
         const overrideCommand = 'cmds';
         if (!settings.commandsEnabled && command !== overrideCommand) {
-        //    await Bloom.sendMessage(groupId, { text: '🚫 Commands are currently disabled in this group by an admin.' });
-            return false;  }  return true;  } catch (err) {  return true;  } }
+            //    await Bloom.sendMessage(groupId, { text: '🚫 Commands are currently disabled in this group by an admin.' });
+            return false;
+        }
+        return true;
+    } catch (err) {
+        return true;
+    }
+}
 
 async function checkAFK(Bloom, message) {
     try {
@@ -163,7 +260,13 @@ async function checkAFK(Bloom, message) {
         const afk = await AFK.findOne({ user: quotedUser });
         if (afk) {
             await Bloom.sendMessage(message.key.remoteJid, { text: `💤 That user is AFK: ${afk.reason || 'No reason'}`, mentions: [quotedUser] });
-            return false; }  return true;  } catch (e) { return true; } }
+            return false;
+        }
+        return true;
+    } catch (e) {
+        return true;
+    }
+}
 
 const bloomCmd = async (Bloom, message) => {
     try {
@@ -171,11 +274,20 @@ const bloomCmd = async (Bloom, message) => {
         if (!activeBloomInstance) await initCommandHandler(Bloom);
 
         const { command, fulltext } = extractCommand(message);
-        if (/^[1-9]$/.test(command)) { await tttmove(Bloom, message, fulltext); return true; }
+        if (/^[1-9]$/.test(command)) {
+            await tttmove(Bloom, message, fulltext);
+            return true;
+        }
 
         const checks = [
-            () => checkMode(Bloom, message), () => checkGroupCommandLock(Bloom, message), () => checkMessageType(Bloom, message),
-            () => checkCommandTypeFlags(Bloom, message), () => checkAFK(Bloom, message),
+            () => instanceCheckMiddleware(Bloom, message, command),
+            () => checkMode(Bloom, message),
+            () => banCheckMiddleware(Bloom, message),
+            () => checkGroupCommandLock(Bloom, message),
+            () => checkMessageType(Bloom, message),
+            () => checkCommandTypeFlags(Bloom, message),
+            () => checkAFK(Bloom, message),
+            () => maintenanceMiddleware(Bloom, message, command)
         ];
         let shouldProceed = true;
         for (const check of checks) {
@@ -183,11 +295,23 @@ const bloomCmd = async (Bloom, message) => {
                 shouldProceed = shouldProceed && await check();
                 if (!shouldProceed) break;
             } catch (e) {
-                shouldProceed = false;  break; }  }
+                shouldProceed = false;
+                break;
+            }
+        }
 
         if (shouldProceed && command && commandRegistry[command]) {
             await bloomCm(Bloom, message, fulltext, commandRegistry);
-        }   return shouldProceed;  } catch (e) {  return false;  } };
+        }
+        return shouldProceed;
+    } catch (e) {
+        return false;
+    }
+};
 
 if (node !== 'production') setupHotReload();
-module.exports = { bloomCmd, initCommandHandler, commands: commandRegistry,startReminderChecker };
+
+// Connect to database when module loads
+connectDB('Brain Module');
+
+module.exports = { bloomCmd, initCommandHandler, commands: commandRegistry,initializeTicTacToe, startReminderChecker };
