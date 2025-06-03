@@ -1,3 +1,5 @@
+const fetch = require('node-fetch');
+
 async function pokemon() {
     const randomId = Math.floor(Math.random() * 898) + 1;
     const url = `https://pokeapi.co/api/v2/pokemon/${randomId}/`;

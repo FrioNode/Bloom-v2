@@ -24,8 +24,7 @@ class RotationManager {
             const settings = await BotSettings.findById('global') || await BotSettings.create({ 
                 _id: 'global',
                 activeInstance: 'bot1',
-                lastRotation: new Date(),
-                rotationEnabled: config.rotationEnabled
+                lastRotation: new Date()
             });
 
             log(`✅ Rotation manager initialized with active instance: ${settings.activeInstance}`);
@@ -38,7 +37,19 @@ class RotationManager {
         try {
             const { BotSettings } = createInstanceModels('bot1');
             const settings = await BotSettings.findById('global');
-            return settings?.activeInstance || 'bot1';
+            const activeInstance = settings?.activeInstance || 'bot1';
+            
+            // Validate that the active instance exists in config
+            if (!this.instances.find(i => i.id === activeInstance)) {
+                log(`⚠️ Invalid active instance ${activeInstance} in database, resetting to bot1`);
+                if (settings) {
+                    settings.activeInstance = 'bot1';
+                    await settings.save();
+                }
+                return 'bot1';
+            }
+            
+            return activeInstance;
         } catch (error) {
             log(`❌ Error getting active instance: ${error.message}`);
             return 'bot1';
@@ -53,20 +64,33 @@ class RotationManager {
             const { BotSettings } = createInstanceModels('bot1');
             const settings = await BotSettings.findById('global');
             
-            if (!settings?.rotationEnabled) {
-                log('ℹ️ Rotation is disabled in database');
+            if (!config.rotationEnabled) {
+                log('ℹ️ Rotation is disabled in config');
                 return;
             }
 
-            // Get current active instance
+            // Get and validate current active instance
             const currentInstanceId = settings.activeInstance;
+            if (!currentInstanceId) {
+                log('⚠️ No active instance found, defaulting to bot1');
+                settings.activeInstance = 'bot1';
+                await settings.save();
+                return;
+            }
+
             const currentIndex = this.instances.findIndex(i => i.id === currentInstanceId);
+            if (currentIndex === -1) {
+                log(`⚠️ Invalid active instance ${currentInstanceId}, resetting to bot1`);
+                settings.activeInstance = 'bot1';
+                await settings.save();
+                return;
+            }
             
             // Calculate next instance
             const nextIndex = (currentIndex + 1) % this.instances.length;
             const nextInstance = this.instances[nextIndex];
 
-            log(`🔄 Rotating from ${currentInstanceId} to ${nextInstance.id}`);
+            log(`🔄 Rotating from ${currentInstanceId} to ${nextInstance.id} (${nextIndex + 1}/${this.instances.length})`);
 
             // Update in database
             settings.activeInstance = nextInstance.id;
@@ -76,7 +100,7 @@ class RotationManager {
             // Reset rotation timer with new instance's hours
             this.resetRotationTimer(nextInstance.rotationHours);
             
-            log(`✅ Successfully rotated to instance: ${nextInstance.id}`);
+            log(`✅ Successfully rotated to instance: ${nextInstance.id} (Next rotation in ${nextInstance.rotationHours} hours)`);
 
             // Broadcast rotation event to all instances
             await this.broadcastRotationEvent(nextInstance.id);
@@ -124,14 +148,21 @@ class RotationManager {
             const { BotSettings } = createInstanceModels('bot1');
             const settings = await BotSettings.findById('global');
             
-            if (!settings?.rotationEnabled) {
-                log('ℹ️ Rotation is disabled in database');
+            if (!config.rotationEnabled) {
+                log('ℹ️ Rotation is disabled in config');
                 return;
             }
 
             const currentInstance = this.instances.find(i => i.id === settings.activeInstance);
+            if (!currentInstance) {
+                log('⚠️ Current active instance not found in config, resetting to bot1');
+                settings.activeInstance = 'bot1';
+                await settings.save();
+                return this.startRotation(); // Retry after reset
+            }
+
             this.resetRotationTimer(currentInstance.rotationHours);
-            log('✅ Rotation manager started');
+            log(`✅ Rotation manager started with instance ${currentInstance.id} (Rotation interval: ${currentInstance.rotationHours} hours)`);
         } catch (error) {
             log(`❌ Error starting rotation: ${error.message}`);
         }
@@ -142,13 +173,6 @@ class RotationManager {
             if (this.rotationInterval) {
                 clearInterval(this.rotationInterval);
                 this.rotationInterval = null;
-            }
-
-            const { BotSettings } = createInstanceModels('bot1');
-            const settings = await BotSettings.findById('global');
-            if (settings) {
-                settings.rotationEnabled = false;
-                await settings.save();
             }
 
             log('⏹️ Rotation manager stopped');
