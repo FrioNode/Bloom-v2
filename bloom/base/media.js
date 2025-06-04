@@ -3,7 +3,6 @@ const os = require('os');
 const path = require('path');
 const ytdl = require('@distube/ytdl-core');
 const yts = require('yt-search');
-const { PassThrough } = require('stream');
 
 function formatDuration(seconds) {
     const h = Math.floor(seconds / 3600);
