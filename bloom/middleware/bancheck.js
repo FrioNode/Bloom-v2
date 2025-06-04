@@ -1,6 +1,6 @@
 const { createInstanceModels } = require('../../colors/schema');
 const mess = require('../../colors/mess');
-
+const { log } = require('../../utils/logger');
 /**
  * Middleware to check if a user is banned
  * @param {Object} Bloom - The Bloom instance
@@ -36,7 +36,7 @@ async function banCheckMiddleware(Bloom, message) {
 
         return true;
     } catch (error) {
-        console.error('Ban check middleware error:', error);
+        log('Ban check middleware error:', error);
         return true; // On error, allow command to proceed
     }
 }
