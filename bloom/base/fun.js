@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { pixelkey } =require('../../colors/setup');
 const { footer } = require('../../colors/mess');
+const { log } = require('../../utils/logger');
 module.exports = {
     wiki: {
         type: 'utility',
@@ -37,7 +38,7 @@ module.exports = {
                 }, { quoted: message });
 
             } catch (err) {
-                console.error('Wiki search error:', err.message);
+                log('Wiki search error:', err.message);
                 await Bloom.sendMessage(sender, {
                     text: `❌ Failed to fetch info on *${query}*.`
                 }, { quoted: message });
@@ -57,7 +58,7 @@ module.exports = {
                     { quoted: message }
                 );
             } catch (error) {
-                console.error('Error fetching number trivia:', error);
+                log('Error fetching number trivia:', error);
                 await Bloom.sendMessage(
                     message.key.remoteJid,
                     { text: 'Failed to fetch number trivia. Try again later!' },
@@ -80,7 +81,7 @@ module.exports = {
                     { quoted: message }
                 );
             } catch (error) {
-                console.error('Error fetching joke:', error);
+                log('Error fetching joke:', error);
                 await Bloom.sendMessage(
                     message.key.remoteJid,
                     { text: 'Failed to fetch a joke. Try again later!' },
@@ -118,7 +119,7 @@ module.exports = {
                 }, { quoted: message });
 
             } catch (err) {
-                console.error('Pexels image error:', err.message);
+                log('Pexels image error:', err.message);
                 await Bloom.sendMessage(sender, {
                     text: `❌ Failed to fetch image for *${query}*.`
                 }, { quoted: message });
@@ -138,7 +139,7 @@ module.exports = {
                     { quoted: message }
                 );
             } catch (error) {
-                console.error('Error fetching fact:', error);
+                log('Error fetching fact:', error);
                 await Bloom.sendMessage(
                     message.key.remoteJid,
                     { text: 'Failed to fetch a fact. Try again later!' },
@@ -165,7 +166,7 @@ module.exports = {
                     throw new Error('No dog facts found.');
                 }
             } catch (error) {
-                console.error('Error fetching dog fact:', error);
+                log('Error fetching dog fact:', error);
                 await Bloom.sendMessage(
                     message.key.remoteJid,
                     { text: 'Failed to fetch a dog fact. Try again later!' },
@@ -183,7 +184,7 @@ module.exports = {
                 const data = await res.json();
                 await Bloom.sendMessage(message.key.remoteJid, { text: `#   ${data.value}` }, { quoted: message });
             } catch (error) {
-                console.error('Error fetching Chuck Norris joke:', error);
+                log('Error fetching Chuck Norris joke:', error);
                 await Bloom.sendMessage(
                     message.key.remoteJid,
                     { text: 'Failed to fetch a Chuck Norris joke. Try again later!' },
@@ -201,7 +202,7 @@ module.exports = {
                 const data = await res.json();
                 await Bloom.sendMessage(message.key.remoteJid, { text: data.fact }, { quoted: message });
             } catch (error) {
-                console.error('Error fetching cat fact:', error);
+                log('Error fetching cat fact:', error);
                 await Bloom.sendMessage(
                     message.key.remoteJid,
                     { text: 'Failed to fetch a cat fact. Try again later!' },
