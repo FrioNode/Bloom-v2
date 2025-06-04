@@ -3,7 +3,7 @@ const { pixelkey } =require('../../colors/setup');
 const { footer } = require('../../colors/mess');
 module.exports = {
     wiki: {
-        type: 'fun',
+        type: 'utility',
         desc: 'Search Wikipedia and get a summary of a topic',
         usage: 'wiki <topic>',
         run: async (Bloom, message, fulltext) => {
@@ -45,7 +45,7 @@ module.exports = {
         }
     },
     number: {
-        type: 'fun',
+        type: 'user',
         desc: 'Sends a random number trivia fact',
         run: async (Bloom, message) => {
             try {
@@ -67,7 +67,7 @@ module.exports = {
         }
     },
     joke: {
-        type: 'fun',
+        type: 'user',
         desc: 'Sends a random joke',
         run: async (Bloom, message) => {
             try {
@@ -90,7 +90,7 @@ module.exports = {
         }
     },
     img: {
-        type: 'fun',
+        type: 'utility',
         desc: 'Fetches a random image from Pexels based on a query',
         usage: 'img <search term>',
         run: async (Bloom, message, fulltext) => {
@@ -126,7 +126,7 @@ module.exports = {
         }
     },
     fact: {
-        type: 'fun',
+        type: 'user',
         desc: 'Sends a random fact from the internet',
         run: async (Bloom, message) => {
             try {
@@ -148,7 +148,7 @@ module.exports = {
         }
     },
     dog: {
-        type: 'fun',
+        type: 'user',
         desc: 'Sends a random dog fact',
         run: async (Bloom, message) => {
             try {
@@ -175,7 +175,7 @@ module.exports = {
         }
     },
     chuck: {
-        type: 'fun',
+        type: 'user',
         desc: 'Sends a random Chuck Norris joke',
         run: async (Bloom, message) => {
             try {
@@ -193,7 +193,7 @@ module.exports = {
         }
     },
     cat: {
-        type: 'fun',
+        type: 'user',
         desc: 'Sends a random cat fact from the internet',
         run: async (Bloom, message) => {
             try {

@@ -982,7 +982,7 @@ module.exports = {
     },
 
     catch: {
-        type: 'pokemon',
+        type: 'games',
         desc: 'Catch a Pokémon that has appeared',
         run: async (Bloom, message, fulltext) => {
             const { Pokemon } = getModels(Bloom._instanceId);
@@ -1015,7 +1015,7 @@ module.exports = {
         }
     },
     pokes: {
-        type: 'pokemon',
+        type: 'games',
         desc: 'View your Pokémon collection',
         run: async (Bloom, message) => {
             try {
@@ -1045,7 +1045,7 @@ module.exports = {
         }
     },
     pokedex: {
-        type: 'pokemon',
+        type: 'games',
         desc: 'View any Pokémon details by name or ID',
         run: async (Bloom, message, fulltext) => {
             const { Pokemon } = getModels(Bloom._instanceId);
@@ -1087,7 +1087,7 @@ module.exports = {
         }
     },
     ttt: {
-        type: 'game',
+        type: 'games',
         desc: 'Tic Tac Toe game (create, join, end)',
         usage: `🎮 *TIC TAC TOE HELP* 🎮
         *Commands*:

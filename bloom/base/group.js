@@ -1,6 +1,6 @@
 const { isGroupAdminContext } = require('../../colors/auth');
 const mess = require('../../colors/mess');
-const { Settings } = require('../../colors/schema');
+const { createInstanceModels } = require('../../colors/schema');
 
 const toggles = {
     antilink: 'antiLink',
@@ -439,8 +439,8 @@ module.exports = {
             },
             cmds: {
                 type: 'group',
-                desc: 'Toggle NSFW commands',
-                usage: 'nsfw on/off',
+                desc: 'Toggle all commands',
+                usage: 'cmds on/off',
                 run: async (Bloom, message, fulltext) =>
                 toggleSetting(Bloom, message, fulltext, 'cmds')
             }
@@ -456,14 +456,22 @@ async function toggleSetting(Bloom, message, fulltext, alias) {
         return await Bloom.sendMessage(jid, { text: `❗ Usage: ${alias} on/off` });
     }
 
-    const update = { [toggles[alias]]: arg === 'on' };
+    try {
+        // Get the Settings model for the current instance
+        const { Settings } = createInstanceModels(Bloom._instanceId);
 
-    await Settings.findOneAndUpdate(
-        { group: jid },
-        { $set: update },
-        { new: true, upsert: true }
-    );
+        const update = { [toggles[alias]]: arg === 'on' };
 
-    const status = arg === 'on' ? '✅ Enabled' : '🚫 Disabled';
-    return await Bloom.sendMessage(jid, { text: `${status} ${alias}` });
+        await Settings.findOneAndUpdate(
+            { group: jid },
+            { $set: update },
+            { new: true, upsert: true }
+        );
+
+        const status = arg === 'on' ? '✅ Enabled' : '🚫 Disabled';
+        return await Bloom.sendMessage(jid, { text: `${status} ${alias}` });
+    } catch (error) {
+        console.error(`Error toggling ${alias}:`, error);
+        return await Bloom.sendMessage(jid, { text: `❌ Failed to toggle ${alias}` });
+    }
 }

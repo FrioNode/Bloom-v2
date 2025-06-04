@@ -14,7 +14,7 @@ function formatDuration(seconds) {
 
 module.exports = {
     ytsearch: {
-        type: 'user',
+        type: 'utility',
         desc: 'Search YouTube videos',
         usage: 'ytsearch <query>',
         run: async (Bloom, message, fulltext) => {
@@ -47,7 +47,7 @@ module.exports = {
     },
 
     ytmp3: {
-        type: 'user',
+        type: 'utility',
         desc: 'Download YouTube audio',
         usage: 'ytmp3 <url>',
         run: async (Bloom, message, fulltext) => {
@@ -106,7 +106,7 @@ module.exports = {
     },
 
     ytmp4: {
-        type: 'user',
+        type: 'utility',
         desc: 'Download YouTube video',
         usage: 'ytmp4 <url>',
         run: async (Bloom, message, fulltext) => {

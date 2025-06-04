@@ -3,9 +3,10 @@ const { isBloomKing } = require('../../colors/auth');
 
 module.exports = {
     bloom: {
+        type: 'owner',
         desc: 'Toggle bot instance state',
-        owner: true,
-        async run(Bloom, message, fulltext) {
+        usage: 'bloom <instance> (bot1, bot2, bot3)',
+        run: async (Bloom, message, fulltext) => {
             try {
                 const sender = message.key.participant || message.key.remoteJid;
                 if (!isBloomKing(sender, message)) return;
