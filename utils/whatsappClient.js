@@ -3,6 +3,7 @@ const setup = require('../colors/setup');
 const { log } = require('./logger');
 const mess = require('../colors/mess');
 const { bloomCmd, initCommandHandler, startReminderChecker, initializeTicTacToe } = require('../bloom/brain');
+const rotationManager = require('./rotationManager');
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
@@ -70,12 +71,12 @@ async function start(instanceConfig, options = {}) {
                     log(`❌ Error initializing bot services for ${instanceConfig.id}:`, error);
                 }
 
-                // Send payload message for first instance only
-                if (instanceConfig.id === 'bot1') {
+                const activeInstance = await rotationManager.getCurrentActiveInstance();
+                if (instanceConfig.id === activeInstance) {
                     log(`${setup.emoji} ${setup.botname} is now online`);
 
                     // Get instance-specific logschat
-                    const instanceConfig = setup.instances[`bot1`];
+                    const instanceConfig = setup.instances[activeInstance];
                     const logschat = instanceConfig?.logschat || setup.bloomchat;
 
                     if (!setup.botname || !logschat || !setup.image) {
