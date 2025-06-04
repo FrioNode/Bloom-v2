@@ -2,7 +2,7 @@ const { sudochat } = require('./setup');
 const mess = require('./mess');
 const fs = require('fs').promises;
 const path = require('path');
-const config = require('../config');
+const config = require('../utils/config');
 
 // ID Utilities - Now using a Map to store IDs for each instance
 const BOT_IDS = new Map();

@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 // const { mongo } = require('./setup');
-const { createModel } = require('../database');
+const { createModel } = require('../utils/database');
 
 const pokemonSchema = new mongoose.Schema({
     name: { type: String, required: true },
