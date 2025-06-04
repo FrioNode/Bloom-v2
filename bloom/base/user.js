@@ -140,19 +140,19 @@ module.exports = {
 
                 const dbStatus = mongoose.connection.readyState === 1 ? '✅ Connected' : '❌ Disconnected';
                 const statusMessage = `----🌼 ${botname} 🌼---
-╭──────────────────── 🧠
-│  \`\`\`${getCurrentDate()}
-│ Uptime: ${runtime(uptime)}
-│ Commands: ${Object.keys(commands).length}
-│ Platform: ${os.platform()}
-│ Server: ${os.hostname()}
-│ Memory: ${(os.totalmem()/1e9-os.freemem()/1e9).toFixed(2)} GB / ${(os.totalmem()/1e9).toFixed(2)} GB
-│ Heap Mem: ${(mem.heapUsed/1e6).toFixed(2)} MB / ${(mem.heapTotal/1e6).toFixed(2)} MB
-│ External Mem: ${(mem.external/1e6).toFixed(2)} MB
-│ Disk: ${disk[1]} / ${disk[0]} (Free: ${disk[2]})
-│ Database: ${dbStatus}
-│ Mode: ${process.env.NODE_ENV||'development'} | ${mode}\`\`\`
-╰─────────────────────── 🚀
+┌──────────────────── 🧠
+├  \`\`\`${getCurrentDate()}
+├ Uptime: ${runtime(uptime)}
+├ Commands: ${Object.keys(commands).length}
+├ Platform: ${os.platform()}
+├ Server: ${os.hostname()}
+├ Memory: ${(os.totalmem()/1e9-os.freemem()/1e9).toFixed(2)} GB / ${(os.totalmem()/1e9).toFixed(2)} GB
+├ Heap Mem: ${(mem.heapUsed/1e6).toFixed(2)} MB / ${(mem.heapTotal/1e6).toFixed(2)} MB
+├ External Mem: ${(mem.external/1e6).toFixed(2)} MB
+├ Disk: ${disk[1]} / ${disk[0]} (Free: ${disk[2]})
+├ Database: ${dbStatus}
+├ Mode: ${process.env.NODE_ENV||'development'} | ${mode}\`\`\`
+└────────────────────── 🚀
 > (c) ${cpyear} FrioNode - 🦑 •|•`;
 
                 await Bloom.sendMessage(message.key.remoteJid, {text: statusMessage}, {quoted: message});
@@ -215,14 +215,14 @@ module.exports = {
                 const progress = next ? ((expData.points - current.min) / (next.min - current.min) * 100).toFixed(1) : 100;
                 const progressBar = createProgressBar(progress);
 
-                const response = `╭────📊 EXP REPORT─────
-│ 🔢 *${expData.points.toLocaleString()}* points
-│ 🎖️ Level: *${current.name}*
-${next ? `│ ⬆️ *${toNext.toLocaleString()}* more to *${next.name}*
-│ ${progressBar} ${progress}%` : `│ 🏆 *MAX LEVEL*: ${current.name}`}
-${bonusGiven ? `│ 🎁 Daily bonus claimed! (+${5 + Math.min(Math.floor(expData.streak / 7), 5)} EXP)
-│ 🔥 Streak: *${expData.streak} days*` : `│ 🕒 Daily bonus in: ${msToTime(86400000 - (now - lastDaily))}`}
-╰────────────────────`;
+                const response = `┌────📊 EXP REPORT─────
+├ 🔢 *${expData.points.toLocaleString()}* points
+├ 🎖️ Level: *${current.name}*
+${next ? `├ ⬆️ *${toNext.toLocaleString()}* more to *${next.name}*
+├ ${progressBar} ${progress}%` : `├ 🏆 *MAX LEVEL*: ${current.name}`}
+${bonusGiven ? `├ 🎁 Daily bonus claimed! (+${5 + Math.min(Math.floor(expData.streak / 7), 5)} EXP)
+├ 🔥 Streak: *${expData.streak} days*` : `├ 🕒 Daily bonus in: ${msToTime(86400000 - (now - lastDaily))}`}
+└────────────────────`;
 
                 await Bloom.sendMessage(message.key.remoteJid, { text: response }, { quoted: message });
             } catch (err) {
@@ -438,7 +438,7 @@ ${bonusGiven ? `│ 🎁 Daily bonus claimed! (+${5 + Math.min(Math.floor(expDat
                 const { current, next } = getLevelData(expData.points);
                 if (!next) {
                     return await Bloom.sendMessage(message.key.remoteJid, { 
-                        text: `╭───────────────\n│ 🏆 Max Level: *${current.name}*\n│ ${createProgressBar(100)}\n╰───────────────` 
+                        text: `┌───────────────\n├ 🏆 Max Level: *${current.name}*\n├ ${createProgressBar(100)}\n└───────────────`
                     }, { quoted: message });
                 }
 
@@ -446,11 +446,11 @@ ${bonusGiven ? `│ 🎁 Daily bonus claimed! (+${5 + Math.min(Math.floor(expDat
                 const progressBar = createProgressBar(percent);
 
                 await Bloom.sendMessage(message.key.remoteJid, {
-                    text: `╭───────────────
-│ 🎖️ Level: *${current.name}*
-│ 🔋 Progress: ${progressBar} ${percent}%
-│ ⬆️ *${next.name}* at *${next.min.toLocaleString()}* points
-╰───────────────`
+                    text: `┌───────────────
+├ 🎖️ Level: *${current.name}*
+├ 🔋 Progress: ${progressBar} ${percent}%
+├ ⬆️ *${next.name}* at *${next.min.toLocaleString()}* points
+└───────────────`
                 }, { quoted: message });
             } catch (error) {
                 console.error('Progress check error:', error);
