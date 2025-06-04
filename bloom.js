@@ -1,11 +1,11 @@
 const { botname } = require('./colors/setup');
 const express = require('express');
-const rotationManager = require('./rotationManager');
-const startupManager = require('./startupManager');
+const rotationManager = require('./utils/rotationManager');
+const startupManager = require('./uitls/startupManager');
 const { log } = require('./utils/logger');
 const path = require('path');
 const { createInstanceModels } = require('./colors/schema');
-const config = require('./config');
+const config = require('./utils/config');
 
 let stopPokemonGame; const app = express();
 const serverStartTime = Date.now();

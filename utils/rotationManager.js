@@ -1,8 +1,8 @@
 const config = require('./config');
-const { log } = require('./utils/logger');
+const { log } = require('./logger');
 const fs = require('fs').promises;
 const path = require('path');
-const { createInstanceModels } = require('./colors/schema');
+const { createInstanceModels } = require('../colors/schema');
 
 class RotationManager {
     constructor() {

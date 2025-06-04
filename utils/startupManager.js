@@ -2,8 +2,8 @@ const config = require('./config');
 const fs = require('fs').promises;
 const path = require('path');
 const axios = require('axios');
-const { log } = require('./utils/logger');
-const { start } = require('./utils/whatsappClient');
+const { log } = require('./logger');
+const { start } = require('./whatsappClient');
 
 class StartupManager {
     constructor() {

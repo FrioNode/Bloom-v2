@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
-const { log } = require('./utils/logger');
-const { mongo } = require('./colors/setup');
+const { log } = require('./logger');
+const { mongo } = require('../colors/setup');
 
 const uri = mongo || process.env.MONGODB_URI || 'mongodb://localhost:27017/bloom';
 
