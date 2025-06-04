@@ -105,21 +105,5 @@ const messages = {
         footer: `> (c) ${cpyear} ${botname} Por @${devname} - ☁️ •|•`
     }
 };
-
-// Create a function that will also have all the message properties
-function getMessages(language = lang) {
-    const selectedMessages = messages[language] || messages['EN'];
-    
-    // Create the function that will be exported
-    const messagesFunction = function(requestedLang) {
-        return messages[requestedLang] || messages['EN'];
-    };
-
-    // Add all message properties to the function
-    Object.assign(messagesFunction, selectedMessages);
-
-    return messagesFunction;
-}
-
-// Export the function with message properties attached
-module.exports = getMessages();
+// If the language doesn't exist, fall back to English
+module.exports = messages[lang] || messages['EN'];
