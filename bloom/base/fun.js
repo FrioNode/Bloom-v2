@@ -181,7 +181,7 @@ module.exports = {
             try {
                 const res = await fetch('https://api.chucknorris.io/jokes/random');
                 const data = await res.json();
-                await Bloom.sendMessage(message.key.remoteJid, { text: `| ${data.value}` }, { quoted: message });
+                await Bloom.sendMessage(message.key.remoteJid, { text: `#   ${data.value}` }, { quoted: message });
             } catch (error) {
                 console.error('Error fetching Chuck Norris joke:', error);
                 await Bloom.sendMessage(
