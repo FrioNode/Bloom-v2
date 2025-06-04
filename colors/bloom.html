@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap" rel="stylesheet" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/typed.js/2.0.12/typed.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
       --primary: linear-gradient(135deg, #00d4ff, #7e00ff);
@@ -61,6 +62,71 @@
       animation: fadeIn 1.5s ease;
     }
 
+    /* Dashboard Styles */
+    .dashboard {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+      padding: 1rem;
+    }
+
+    .dashboard-card {
+      background: var(--glass);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      backdrop-filter: blur(var(--blur));
+      box-shadow: var(--glow);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: var(--transition);
+    }
+
+    .dashboard-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 0 30px rgba(0, 255, 255, 0.2);
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .stat-item {
+      text-align: center;
+      padding: 1rem;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      color: var(--highlight);
+      margin-bottom: 0.5rem;
+    }
+
+    .stat-label {
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .active-instance {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      background: linear-gradient(135deg, #00ff8780, #00ffff80);
+      border-radius: 50px;
+      font-size: 0.9rem;
+      margin-top: 1rem;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 200px;
+      margin-top: 1rem;
+    }
+
+    /* Existing Styles */
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(20px); }
       to { opacity: 1; transform: translateY(0); }
@@ -147,8 +213,8 @@
     }
 
     @media (max-width: 768px) {
-      .feature {
-        width: 80%;
+      .feature, .dashboard-card {
+        width: 100%;
       }
 
       h1 {
@@ -158,15 +224,9 @@
       .typing-text {
         font-size: 1.3em;
       }
-    }
 
-    @media (max-width: 480px) {
-      .feature {
-        width: 100%;
-      }
-
-      .cta-button {
-        width: 100%;
+      .stat-grid {
+        grid-template-columns: 1fr;
       }
     }
   </style>
@@ -178,6 +238,54 @@
       <h1>BloomBot MD</h1>
       <div class="typing-text" id="typing-text"></div>
 
+      <!-- Dashboard Section -->
+      <div class="dashboard">
+        <div class="dashboard-card">
+          <h3><i class="fas fa-server"></i> Instance Status</h3>
+          <div id="active-instance" class="active-instance">Loading...</div>
+          <div class="stat-grid">
+            <div class="stat-item">
+              <div class="stat-value" id="uptime-value">-</div>
+              <div class="stat-label">Uptime</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="next-rotation">-</div>
+              <div class="stat-label">Next Rotation</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-card">
+          <h3><i class="fas fa-users"></i> User Statistics</h3>
+          <div class="stat-grid">
+            <div class="stat-item">
+              <div class="stat-value" id="total-users">-</div>
+              <div class="stat-label">Total Users</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="active-users">-</div>
+              <div class="stat-label">Active Today</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="total-groups">-</div>
+              <div class="stat-label">Total Groups</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="commands-today">-</div>
+              <div class="stat-label">Commands Today</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-card">
+          <h3><i class="fas fa-chart-line"></i> Activity Graph</h3>
+          <div class="chart-container">
+            <canvas id="activityChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Features Section -->
       <div class="features">
         <div class="feature"><i class="fas fa-robot"></i><h3>Smart Replies</h3><p>AI-powered responses</p></div>
         <div class="feature"><i class="fas fa-language"></i><h3>Multi-language</h3><p>Talk globally</p></div>
@@ -195,8 +303,8 @@
     </div>
   </div>
 
-<div id="runtime">Loading uptime...</div>
 <script>
+    // Typing Animation
     new Typed('#typing-text', {
       strings: ['Enhance your chats...', 'Automate replies like a boss.', 'BloomBot makes it easy.'],
       typeSpeed: 60,
@@ -204,30 +312,115 @@
       loop: true,
       backDelay: 1200
     });
-  let uptimeSeconds = 0;
 
-  async function fetchUptime() {
-    const res = await fetch('/uptime');
-    const data = await res.json();
-    uptimeSeconds =
-      data.days * 86400 + data.hours * 3600 + data.minutes * 60 + data.seconds;
-    updateUptimeDisplay(); // initial
-    setInterval(updateUptimeDisplay, 1000);
-  }
+    // Initialize uptime counter
+    let uptimeSeconds = 0;
 
-  function updateUptimeDisplay() {
-    uptimeSeconds++;
+    async function fetchBotStats() {
+      try {
+        const res = await fetch('/api/stats');
+        const data = await res.json();
+        
+        // Update instance info
+        document.getElementById('active-instance').innerHTML = 
+          `<i class="fas fa-circle" style="color: #00ff00"></i> Active: ${data.activeInstance}`;
+        
+        // Update statistics
+        document.getElementById('total-users').textContent = data.totalUsers.toLocaleString();
+        document.getElementById('active-users').textContent = data.activeUsers.toLocaleString();
+        document.getElementById('total-groups').textContent = data.totalGroups.toLocaleString();
+        document.getElementById('commands-today').textContent = data.commandsToday.toLocaleString();
+        
+        // Update next rotation countdown (now directly using hours)
+        document.getElementById('next-rotation').textContent = `${data.nextRotation}h`;
 
-    const days = Math.floor(uptimeSeconds / 86400);
-    const hours = Math.floor((uptimeSeconds % 86400) / 3600);
-    const minutes = Math.floor((uptimeSeconds % 3600) / 60);
-    const seconds = uptimeSeconds % 60;
+        // Update uptime if provided
+        if (data.uptime) {
+            document.getElementById('uptime-value').textContent = 
+                `${data.uptime.days}d ${data.uptime.hours}h ${data.uptime.minutes}m ${data.uptime.seconds}s`;
+            document.getElementById('runtime').innerText =
+                `BloomBot has been active for: ${data.uptime.days}d ${data.uptime.hours}h ${data.uptime.minutes}m ${data.uptime.seconds}s`;
+            uptimeSeconds = 
+                data.uptime.days * 86400 + 
+                data.uptime.hours * 3600 + 
+                data.uptime.minutes * 60 + 
+                data.uptime.seconds;
+        }
 
-    document.getElementById('runtime').innerText =
-      `BloomBot has been active for: ${days}d ${hours}h ${minutes}m ${seconds}s`;
-  }
+        // Update activity chart
+        updateActivityChart(data.activityData);
+        
+      } catch (error) {
+        console.error('Error fetching stats:', error);
+      }
+    }
 
-  fetchUptime();
+    function updateActivityChart(data) {
+      const ctx = document.getElementById('activityChart').getContext('2d');
+      
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [{
+            label: 'Commands',
+            data: data.values,
+            borderColor: '#00ffff',
+            backgroundColor: 'rgba(0, 255, 255, 0.1)',
+            tension: 0.4,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              grid: {
+                color: 'rgba(255, 255, 255, 0.1)'
+              },
+              ticks: {
+                color: '#bbbbbb'
+              }
+            },
+            x: {
+              grid: {
+                display: false
+              },
+              ticks: {
+                color: '#bbbbbb'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Initialize
+    fetchBotStats();
+    // Update stats every minute
+    setInterval(fetchBotStats, 60000);
+
+    // Update uptime every second
+    setInterval(() => {
+        uptimeSeconds++;
+        const days = Math.floor(uptimeSeconds / 86400);
+        const hours = Math.floor((uptimeSeconds % 86400) / 3600);
+        const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+        const seconds = uptimeSeconds % 60;
+
+        document.getElementById('uptime-value').textContent = 
+            `${days}d ${hours}h ${minutes}m ${seconds}s`;
+        document.getElementById('runtime').innerText =
+            `BloomBot has been active for: ${days}d ${hours}h ${minutes}m ${seconds}s`;
+    }, 1000);
+
 </script>
 
 </body>

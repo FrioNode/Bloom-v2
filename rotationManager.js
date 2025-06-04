@@ -9,6 +9,8 @@ class RotationManager {
         this.instances = config.instances;
         this.rotationInterval = null;
         this.isRotating = false;
+        this.lastRotationTime = Date.now();
+        this.currentRotationHours = 8;
     }
 
     async initialize() {
@@ -134,6 +136,8 @@ class RotationManager {
         }
 
         const rotationInterval = hours * 60 * 60 * 1000;
+        this.lastRotationTime = Date.now();
+        this.currentRotationHours = hours;
         log(`⏰ Setting rotation timer for ${hours} hours`);
         
         this.rotationInterval = setInterval(() => {
@@ -141,6 +145,13 @@ class RotationManager {
                 log(`❌ Error during scheduled rotation: ${err.message}`);
             });
         }, rotationInterval);
+    }
+
+    getNextRotationTime() {
+        if (!this.rotationInterval) return null;
+        const nextRotation = this.lastRotationTime + (this.currentRotationHours * 60 * 60 * 1000);
+        const now = Date.now();
+        return Math.max(0, Math.ceil((nextRotation - now) / (60 * 60 * 1000)));
     }
 
     async startRotation() {
