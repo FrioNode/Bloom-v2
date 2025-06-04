@@ -9,6 +9,7 @@ const maintenanceMiddleware = require('./middleware/maintenance');
 const banCheckMiddleware = require('./middleware/bancheck');
 const instanceCheckMiddleware = require('./middleware/instancecheck');
 const fs = require('fs'), path = require('path');
+const { log } = require('../utils/logger');
 
 // Initialize models map for each instance
 const instanceModels = new Map();
@@ -33,7 +34,7 @@ async function initCommandHandler(Bloom) {
     activeBloomInstance = Bloom;
     commandRegistry = {};
     await loadCommands();
-    console.log('♻️ Command handler initialized');
+    log('♻️ Command handler initialized');
 }
 
 async function loadCommands() {
@@ -64,7 +65,7 @@ async function loadCommands() {
                 }
             } catch (e) { }
         }
-        console.log(`📦 Total loaded commands: ${Object.keys(commandRegistry).length}`);
+        log(`📦 Total loaded commands: ${Object.keys(commandRegistry).length}`);
     } catch (e) { }
 }
 
