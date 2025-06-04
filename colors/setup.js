@@ -36,7 +36,7 @@ function getAll() {
         channel: process.env.CHANNEL || 'https://whatsapp.com/channel/0029VaF8RYn5YU6Dp8e2mD0A',
         botname: process.env.BOT_NAME || 'Bloom',
         image: process.env.IMAGE || 'https://i.imgur.com/XFGxWXt.jpeg',
-        lang: process.env.LANG || 'EN',
+        lang: process.env.BOT_LANG || 'EN',
         react: process.env.REACT || 'true',
         emoji: process.env.EMOJI || '🌸',
         reboot: process.env.REBOOT === 'true',

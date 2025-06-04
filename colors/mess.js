@@ -105,5 +105,10 @@ const messages = {
         footer: `> (c) ${cpyear} ${botname} Por @${devname} - ☁️ •|•`
     }
 };
-// If the language doesn't exist, fall back to English
+
+// Check if the configured language exists
+if (lang && !messages[lang]) {
+    console.warn(`[WARN] Language '${lang}' is not supported. Available languages: ${Object.keys(messages).join(', ')}. Falling back to English.`);
+}
+
 module.exports = messages[lang] || messages['EN'];
