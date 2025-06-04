@@ -1,7 +1,7 @@
 {
   "name": "BloomBot",
   "version": "2.0.0",
-  "description": "WhatsApp multidevice bot build on baileys",
+  "description": "WhatsApp multidevice tripple instance bots build on baileys",
   "main": "bloom.js",
   "scripts": {
     "start": "node bloom.js",
