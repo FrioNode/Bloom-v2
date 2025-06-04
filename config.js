@@ -5,7 +5,7 @@ const config = {
             sessionDir: 'heart_bot1',
             rotationHours: 8,
             logschat: process.env.LOGS_CHAT_1 || '',
-            sessionToken: process.env.SESSION_1 || '', // BLOOM~xxx format
+            sessionToken: process.env.SESSION_1 || '',
             priority: parseInt(process.env.BOT1_PRIORITY || '1')
         },
         {
@@ -31,10 +31,10 @@ const config = {
     rotationEnabled: true,
     debugMode: false,
     startup: {
-        waitForQR: true, // Wait for QR scan before moving to next instance
-        qrTimeout: 120000, // 2 minutes timeout for QR scan
-        retryAttempts: 3, // Number of retry attempts for session restore
-        sequentialStart: true // Start bots one by one
+        waitForQR: true,
+        qrTimeout: 120000,
+        retryAttempts: 3,
+        sequentialStart: true
     }
 };
 
