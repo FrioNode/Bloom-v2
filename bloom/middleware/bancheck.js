@@ -1,6 +1,6 @@
 const { createInstanceModels } = require('../../colors/schema');
-const mess = require('../../colors/mess');
-
+const getMessages = require('../../colors/mess');
+const mess = getMessages();
 /**
  * Middleware to check if a user is banned
  * @param {Object} Bloom - The Bloom instance
