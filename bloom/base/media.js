@@ -164,10 +164,12 @@ module.exports = {
                 }
 
                 const caption =
-                `🎬 *${info.videoDetails.title}*\n` +
-                `👤 *Author:* ${info.videoDetails.author?.name || 'Unknown'}\n` +
-                `⏱ *Duration:* ${formatDuration(durationSeconds)}\n` +
-                `👀 *Views:* ${Number(info.videoDetails.viewCount || 0).toLocaleString()}`;
+                `┌───────────────`+
+                `├ 🎬 *${info.videoDetails.title}*\n` +
+                `├ 👤 *Author:* ${info.videoDetails.author?.name || 'Unknown'}\n` +
+                `├ ⏱ *Duration:* ${formatDuration(durationSeconds)}\n` +
+                `├ 👀 *Views:* ${Number(info.videoDetails.viewCount || 0).toLocaleString()}`+
+                `└────────────────`;
 
                 await Bloom.sendMessage(message.key.remoteJid, {
                     video: { url: tempFile },
