@@ -2,7 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const cron = require('node-cron');
 const mongoose = require('mongoose');
 const activeTimeouts = new Map();
-const db = require('../database');
+const db = require('../utils/database');
 const { createInstanceModels } = require('../colors/schema');
 const { log } = require('../utils/logger');
 
