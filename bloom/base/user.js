@@ -1,7 +1,7 @@
 const os = require('os');
 const { exec } = require('child_process');
-const { createInstanceModels } = require('../../colors/schema');
-const { mongo, botname, cpyear, mode } = require('../../colors/setup');
+const { createInstanceModels, connectDB } = require('../../colors/schema');
+const { botname, cpyear, mode } = require('../../colors/setup');
 const mess = require('../../colors/mess');
 const mongoose = require('mongoose');
 
@@ -31,39 +31,8 @@ function getModels(instanceId) {
     return instanceModelsCache.get(instanceId);
 }
 
-// Connect to MongoDB with retry logic
-async function connectToMongo() {
-    try {
-        await mongoose.connect(mongo, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-            serverSelectionTimeoutMS: 5000,
-            retryWrites: true,
-            w: 'majority'
-        });
-        console.log('✅ MongoDB connected successfully');
-    } catch (err) {
-        console.error('❌ MongoDB connection error:', err);
-        // Retry connection after 5 seconds
-        setTimeout(connectToMongo, 5000);
-    }
-}
-
 // Initialize MongoDB connection
-connectToMongo();
-
-// Monitor connection for errors
-mongoose.connection.on('error', err => {
-    console.error('MongoDB error:', err);
-    if (!mongoose.connection.readyState) {
-        connectToMongo();
-    }
-});
-
-mongoose.connection.on('disconnected', () => {
-    console.log('MongoDB disconnected. Attempting to reconnect...');
-    connectToMongo();
-});
+connectDB('user');
 
 const locale = process.env.TZ || 'Africa/Nairobi';
 const getCurrentDate = () => {

@@ -16,7 +16,7 @@ class StartupManager {
     }
 
     async checkSession(instance) {
-        const sessionDir = path.join(__dirname, instance.sessionDir);
+        const sessionDir = path.join(process.cwd(), instance.sessionDir);
         const credsPath = path.join(sessionDir, 'creds.json');
         
         try {
@@ -36,7 +36,7 @@ class StartupManager {
             return false;
         }
 
-        const sessionDir = path.join(__dirname, instance.sessionDir);
+        const sessionDir = path.join(process.cwd(), instance.sessionDir);
         const credsPath = path.join(sessionDir, 'creds.json');
         const pasteId = instance.sessionToken.split("BLOOM~")[1];
         

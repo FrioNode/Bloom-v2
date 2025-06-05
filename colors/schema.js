@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-// const { mongo } = require('./setup');
+const { log } = require('../utils/logger');
 const { createModel } = require('../utils/database');
 
 const pokemonSchema = new mongoose.Schema({
@@ -158,9 +158,9 @@ const botSettingsSchema = new mongoose.Schema({
 async function connectDB(moduleName) {
     try {
         // Connection is now handled in database.js
-        console.log(`✅ [${moduleName}] Connected to MongoDB`);
+        log(`✅ [${moduleName}] Connected to MongoDB`);
     } catch (error) {
-        console.error(`❌ [${moduleName}] MongoDB connection error:`, error);
+        log(`❌ [${moduleName}] MongoDB connection error:`, error);
         throw error;
     }
 }
