@@ -2,6 +2,18 @@ const { isGroupAdminContext } = require('../../colors/auth');
 const mess = require('../../colors/mess');
 const { createInstanceModels } = require('../../colors/schema');
 
+// Cache for instance models
+const instanceModelsCache = new Map();
+
+// Helper function to get models for the current instance
+async function getModels(instanceId) {
+    if (!instanceModelsCache.has(instanceId)) {
+        const models = await createInstanceModels(instanceId);
+        instanceModelsCache.set(instanceId, models);
+    }
+    return instanceModelsCache.get(instanceId);
+}
+
 const toggles = {
     antilink: 'antiLink',
     noimage: 'noImage',
@@ -9,6 +21,36 @@ const toggles = {
     nsfw: 'nsfwEnabled',
     cmds: 'commandsEnabled'
 };
+
+async function toggleSetting(Bloom, message, fulltext, alias) {
+    try {
+        const groupId = message.key.remoteJid;
+        if (!await isGroupAdminContext(Bloom, message)) return;
+
+        const models = await getModels(Bloom._instanceId);
+        const { Settings } = models;
+        
+        let settings = await Settings.findOne({ group: groupId });
+        if (!settings) {
+            settings = new Settings({ group: groupId });
+        }
+
+        const setting = toggles[alias];
+        if (!setting) return;
+
+        settings[setting] = !settings[setting];
+        await settings.save();
+
+        await Bloom.sendMessage(groupId, {
+            text: `${settings[setting] ? '✅' : '❌'} ${alias.toUpperCase()} has been ${settings[setting] ? 'enabled' : 'disabled'}`
+        });
+    } catch (error) {
+        console.error(`Error in toggle ${alias}:`, error);
+        await Bloom.sendMessage(message.key.remoteJid, {
+            text: '❌ An error occurred while updating settings.'
+        });
+    }
+}
 
 module.exports = {
     add: {
@@ -411,67 +453,27 @@ module.exports = {
             },
            antilink: {
                 type: 'group',
-                desc: 'Toggle Anti-Link protection',
-                usage: 'antilink on/off',
-                run: async (Bloom, message, fulltext) =>
-                toggleSetting(Bloom, message, fulltext, 'antilink')
+                desc: 'Toggle anti-link protection',
+                run: async (Bloom, message, fulltext) => toggleSetting(Bloom, message, fulltext, 'antilink')
             },
             noimage: {
                 type: 'group',
-                desc: 'Toggle image restrictions',
-                usage: 'noimage on/off',
-                run: async (Bloom, message, fulltext) =>
-                toggleSetting(Bloom, message, fulltext, 'noimage')
+                desc: 'Toggle no-image mode',
+                run: async (Bloom, message, fulltext) => toggleSetting(Bloom, message, fulltext, 'noimage')
             },
-            games: {
+            game: {
                 type: 'group',
                 desc: 'Toggle game commands',
-                usage: 'games on/off',
-                run: async (Bloom, message, fulltext) =>
-                toggleSetting(Bloom, message, fulltext, 'game')
+                run: async (Bloom, message, fulltext) => toggleSetting(Bloom, message, fulltext, 'game')
             },
             nsfw: {
                 type: 'group',
                 desc: 'Toggle NSFW commands',
-                usage: 'nsfw on/off',
-                run: async (Bloom, message, fulltext) =>
-                toggleSetting(Bloom, message, fulltext, 'nsfw')
+                run: async (Bloom, message, fulltext) => toggleSetting(Bloom, message, fulltext, 'nsfw')
             },
             cmds: {
                 type: 'group',
                 desc: 'Toggle all commands',
-                usage: 'cmds on/off',
-                run: async (Bloom, message, fulltext) =>
-                toggleSetting(Bloom, message, fulltext, 'cmds')
+                run: async (Bloom, message, fulltext) => toggleSetting(Bloom, message, fulltext, 'cmds')
             }
 };
-
-async function toggleSetting(Bloom, message, fulltext, alias) {
-    const jid = message.key.remoteJid;
-    const arg = fulltext.split(' ')[1]?.toLowerCase();
-
-    if (!await isGroupAdminContext(Bloom, message)) return;
-
-    if (!['on', 'off'].includes(arg)) {
-        return await Bloom.sendMessage(jid, { text: `❗ Usage: ${alias} on/off` });
-    }
-
-    try {
-        // Get the Settings model for the current instance
-        const { Settings } = createInstanceModels(Bloom._instanceId);
-
-        const update = { [toggles[alias]]: arg === 'on' };
-
-        await Settings.findOneAndUpdate(
-            { group: jid },
-            { $set: update },
-            { new: true, upsert: true }
-        );
-
-        const status = arg === 'on' ? '✅ Enabled' : '🚫 Disabled';
-        return await Bloom.sendMessage(jid, { text: `${status} ${alias}` });
-    } catch (error) {
-        console.error(`Error toggling ${alias}:`, error);
-        return await Bloom.sendMessage(jid, { text: `❌ Failed to toggle ${alias}` });
-    }
-}

@@ -34,9 +34,10 @@ const configPath = path.join(__dirname, '../../colors/config.json');
 const instanceModelsCache = new Map();
 
 // Helper function to get models for the current instance
-function getModels(instanceId) {
+async function getModels(instanceId) {
     if (!instanceModelsCache.has(instanceId)) {
-        instanceModelsCache.set(instanceId, createInstanceModels(instanceId));
+        const models = await createInstanceModels(instanceId);
+        instanceModelsCache.set(instanceId, models);
     }
     return instanceModelsCache.get(instanceId);
 }
@@ -198,15 +199,25 @@ module.exports = {
                 });
             }
 
-            await Exp.findOneAndUpdate(
-                { jid: targetJid },
-                { $set: { points: amount } },
-                { upsert: true, new: true }
-            );
+            try {
+                const models = await getModels(Bloom._instanceId);
+                const { Exp } = models;
+                const expData = await Exp.findOneAndUpdate(
+                    { jid: targetJid },
+                    { $set: { points: amount } },
+                    { upsert: true, new: true }
+                );
 
-            await Bloom.sendMessage(message.key.remoteJid, {
-                text: `✅ Set EXP of *${targetJid.split('@')[0]}* to *${amount}*`
-            });
+                await Bloom.sendMessage(message.key.remoteJid, {
+                    text: `✅ Set XP for @${targetJid.split('@')[0]} to ${amount} points`,
+                    mentions: [targetJid]
+                });
+            } catch (error) {
+                console.error('Error in setxp command:', error);
+                await Bloom.sendMessage(message.key.remoteJid, {
+                    text: '❌ Failed to update XP. Please try again later.'
+                });
+            }
         },
         type: 'owner',
         desc: 'Set EXP for a user manually',

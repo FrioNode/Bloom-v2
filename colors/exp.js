@@ -3,7 +3,8 @@ const { createInstanceModels } = require('./schema');
 async function trackUsage(jid, instanceId) {
     if (!jid || !instanceId) return;
     try {
-        const { Exp, User } = createInstanceModels(instanceId);
+        const models = await createInstanceModels(instanceId);
+        const { Exp, User } = models;
         
         // Update exp points and message count
         await Exp.findOneAndUpdate(

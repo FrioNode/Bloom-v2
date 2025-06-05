@@ -10,9 +10,10 @@ const { log } = require('../utils/logger');
 const instanceModelsCache = new Map();
 
 // Helper function to get models for the current instance
-function getModels(instanceId) {
+async function getModels(instanceId) {
     if (!instanceModelsCache.has(instanceId)) {
-        instanceModelsCache.set(instanceId, createInstanceModels(instanceId));
+        const models = await createInstanceModels(instanceId);
+        instanceModelsCache.set(instanceId, models);
     }
     return instanceModelsCache.get(instanceId);
 }
@@ -31,7 +32,8 @@ function checkWinner(board) {
             return board[a]; } }  return board.includes(' ') ? null : 'draw'; }
 
 async function createGame(Bloom, senderJid, groupId) {
-    const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+    const models = await getModels(Bloom._instanceId);
+    const { TicTacToe } = models;
     
     // Check for existing ACTIVE games first
     const existingActive = await TicTacToe.findOne({
@@ -66,7 +68,8 @@ async function createGame(Bloom, senderJid, groupId) {
 }
 
 async function joinGame(Bloom, senderJid, groupId) {
-    const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+    const models = await getModels(Bloom._instanceId);
+    const { TicTacToe } = models;
     
     // Debug log
     console.log(`[DEBUG] Attempting to join game. GroupID: ${groupId}, Sender: ${senderJid}`);
@@ -127,7 +130,8 @@ async function joinGame(Bloom, senderJid, groupId) {
 }
 
 async function makeMove(Bloom, senderJid, position) {
-    const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+    const models = await getModels(Bloom._instanceId);
+    const { TicTacToe } = models;
     
     const game = await TicTacToe.findOne({
         $or: [{ 'player1.jid': senderJid }, { 'player2.jid': senderJid }],
@@ -164,7 +168,8 @@ async function makeMove(Bloom, senderJid, position) {
             symbol: nextPlayer === game.player1 ? '❌' : '⭕' } };; }
 
 async function endGame(Bloom, senderJid) {
-    const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+    const models = await getModels(Bloom._instanceId);
+    const { TicTacToe } = models;
     
     const game = await TicTacToe.findOne({
         $or: [{ 'player1.jid': senderJid }, { 'player2.jid': senderJid }],
@@ -181,7 +186,8 @@ async function endGame(Bloom, senderJid) {
 
 async function cleanupStaleGames(Bloom) {
     try {
-        const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+        const models = await getModels(Bloom._instanceId);
+        const { TicTacToe } = models;
         const now = new Date();
 
         const waitingResult = await TicTacToe.deleteMany({
@@ -223,7 +229,8 @@ async function tttmove(Bloom, message, fulltext){
         // Validate
         if (isNaN(move) || move < 1 || move > 9) {
             return await Bloom.sendMessage(group, { text: '⚠️ Please enter a number between 1-9' }); }
-        const { TicTacToe } = createInstanceModels(Bloom._instanceId);
+        const models = await getModels(Bloom._instanceId);
+        const { TicTacToe } = models;
         const game = await TicTacToe.findOne({
             groupId: group,
             status: 'active'
@@ -268,7 +275,8 @@ async function startReminderChecker(Bloom) {
 
     try {
         // Get instance-specific models
-        const { Reminder } = createInstanceModels(Bloom._instanceId);
+        const models = await getModels(Bloom._instanceId);
+        const { Reminder } = models;
         log(`✅ Starting reminder checker for instance ${Bloom._instanceId}`);
         
         setInterval(async () => {

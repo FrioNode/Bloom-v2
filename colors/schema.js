@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const { log } = require('../utils/logger');
-const { createModel } = require('../utils/database');
+const { createModel, connect, waitForConnection, isConnected } = require('../utils/database');
 
 const pokemonSchema = new mongoose.Schema({
     name: { type: String, required: true },
@@ -155,31 +155,57 @@ const botSettingsSchema = new mongoose.Schema({
     activeInstance: { type: String, default: 'bot1' }  // Stores the ID of the currently active instance
 }, { timestamps: true });
 
-async function connectDB(moduleName) {
+// Export models with instance-specific creation
+async function createInstanceModels(instanceId) {
+    // Wait for connection before creating models
     try {
-        // Connection is now handled in database.js
-        log(`✅ [${moduleName}] Connected to MongoDB`);
+        if (!isConnected()) {
+            await connect();
+            await waitForConnection();
+        }
+
+        const models = {
+            Pokemon: createModel(instanceId, 'Pokemon', pokemonSchema),
+            User: createModel(instanceId, 'User', userSchema),
+            Settings: createModel(instanceId, 'Settings', settingsSchema),
+            Exp: createModel(instanceId, 'Exp', expSchema),
+            AFK: createModel(instanceId, 'AFK', afkSchema),
+            TicTacToe: createModel(instanceId, 'TicTacToe', TicTacToeSchema),
+            Reminder: createModel(instanceId, 'Reminder', reminderSchema),
+            Ticket: createModel(instanceId, 'Ticket', ticketSchema),
+            Counter: createModel(instanceId, 'Counter', counterSchema),
+            UserCounter: createModel(instanceId, 'UserCounter', userCounterSchema),
+            BotSettings: createModel(instanceId, 'BotSettings', botSettingsSchema)
+        };
+
+        // Verify all models have required methods
+        for (const [name, model] of Object.entries(models)) {
+            const requiredMethods = ['find', 'findOne', 'findById', 'deleteMany', 'countDocuments'];
+            for (const method of requiredMethods) {
+                if (typeof model[method] !== 'function') {
+                    throw new Error(`Model ${name} is missing required method: ${method}`);
+                }
+            }
+        }
+
+        return models;
     } catch (error) {
-        log(`❌ [${moduleName}] MongoDB connection error:`, error);
+        log(`❌ Error creating models for instance ${instanceId}:`, error);
         throw error;
     }
 }
 
-// Export models with instance-specific creation
-function createInstanceModels(instanceId) {
-    return {
-        Pokemon: createModel(instanceId, 'Pokemon', pokemonSchema),
-        User: createModel(instanceId, 'User', userSchema),
-        Settings: createModel(instanceId, 'Settings', settingsSchema),
-        Exp: createModel(instanceId, 'Exp', expSchema),
-        AFK: createModel(instanceId, 'AFK', afkSchema),
-        TicTacToe: createModel(instanceId, 'TicTacToe', TicTacToeSchema),
-        Reminder: createModel(instanceId, 'Reminder', reminderSchema),
-        Ticket: createModel(instanceId, 'Ticket', ticketSchema),
-        Counter: createModel(instanceId, 'Counter', counterSchema),
-        UserCounter: createModel(instanceId, 'UserCounter', userCounterSchema),
-        BotSettings: createModel(instanceId, 'BotSettings', botSettingsSchema)
-    };
+async function connectDB(moduleName) {
+    try {
+        if (!isConnected()) {
+            await connect();
+            await waitForConnection();
+            log(`✅ [${moduleName}] Connected to MongoDB`);
+        }
+    } catch (error) {
+        log(`❌ [${moduleName}] MongoDB connection error:`, error);
+        throw error; // Let the caller handle the error
+    }
 }
 
 module.exports = {

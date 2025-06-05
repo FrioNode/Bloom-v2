@@ -15,26 +15,37 @@ const { log } = require('../utils/logger');
 const instanceModels = new Map();
 let commandRegistry = {}; // Global command registry
 let activeBloomInstance = null;
+let UserCounter;
+let Settings;
 
-function getModels(instanceId) {
-    if (!instanceModels.has(instanceId)) {
-        instanceModels.set(instanceId, createInstanceModels(instanceId));
-    }
-    return instanceModels.get(instanceId);
+async function getModels(instanceId) {
+    const models = await createInstanceModels(instanceId);
+    UserCounter = models.UserCounter;
+    Settings = models.Settings;
+    return models;
 }
 
 // Initialize TicTacToe cleanup for each instance
-function initializeTicTacToe(Bloom) {
-    initializeCleanup(Bloom);
+async function initializeTicTacToe(Bloom) {
+    try {
+        initializeCleanup(Bloom);
+        log(`✅ TicTacToe initialized for ${Bloom._instanceId}`);
+    } catch (error) {
+        log(`❌ Error initializing TicTacToe: ${error.message}`);
+    }
 }
 
 async function initCommandHandler(Bloom) {
-    const instanceId = Bloom._instanceId;
-    const models = getModels(instanceId);
-    activeBloomInstance = Bloom;
-    commandRegistry = {};
-    await loadCommands();
-    log('♻️ Command handler initialized');
+    try {
+        // Initialize models first
+        await getModels(Bloom._instanceId);
+        await loadCommands();
+        setupHotReload();
+        log(`✅ Command handler initialized for ${Bloom._instanceId}`);
+    } catch (error) {
+        log(`❌ Error initializing command handler: ${error.message}`);
+        throw error;
+    }
 }
 
 async function loadCommands() {
@@ -139,6 +150,10 @@ async function checkMode(Bloom, message) {
         if (mode === 'public') return true;
         if (mode === 'private') {
             if (sender === sudochat) return true;
+            
+            // Get models and find user
+            const models = await getModels(Bloom._instanceId);
+            const { UserCounter } = models;
             let user = await UserCounter.findOne({ user: sender });
             if (!user) user = await UserCounter.create({ user: sender, count: 1 });
             else user.count += 1;
@@ -158,6 +173,7 @@ async function checkMode(Bloom, message) {
         }
         return true;
     } catch (e) {
+        console.error('Error in checkMode:', e);
         return false;
     }
 }
@@ -169,8 +185,12 @@ async function checkMessageType(Bloom, message) {
         if (!groupId?.endsWith('@g.us')) return true;
         const sender = message.key.participant;
         if (!sender) return true;
+
+        const models = await getModels(Bloom._instanceId);
+        const { Settings } = models;
         const settings = await Settings.findOne({ group: groupId });
         if (!settings) return true;
+
         const senderIsAdmin = await isSenderAdmin(Bloom, message);
         const botIsAdmin = await isBotAdmin(Bloom, message);
         const messageType = Object.keys(message.message)[0] || '';
@@ -201,6 +221,7 @@ async function checkMessageType(Bloom, message) {
         }
         return true;
     } catch (err) {
+        console.error('Error in checkMessageType:', err);
         return true;
     }
 }
@@ -214,8 +235,12 @@ async function checkCommandTypeFlags(Bloom, message) {
         if (!command || !commandRegistry[command]) return true;
         const cmdData = commandRegistry[command];
         if (!cmdData) return true;
+
+        const models = await getModels(Bloom._instanceId);
+        const { Settings } = models;
         const settings = await Settings.findOne({ group: groupId });
         if (!settings) return true;
+
         if (cmdData.type === 'game' && !settings.gameEnabled) {
             await Bloom.sendMessage(groupId, { text: mess.games });
             return false;
@@ -226,6 +251,7 @@ async function checkCommandTypeFlags(Bloom, message) {
         }
         return true;
     } catch (e) {
+        console.error('Error in checkCommandTypeFlags:', e);
         return true;
     }
 }
@@ -239,6 +265,8 @@ async function checkGroupCommandLock(Bloom, message) {
         const { command } = extractCommand(message);
         if (!command || !commandRegistry[command]) return true;
 
+        const models = await getModels(Bloom._instanceId);
+        const { Settings } = models;
         const settings = await Settings.findOne({ group: groupId });
         if (!settings) return true;
 
@@ -249,6 +277,7 @@ async function checkGroupCommandLock(Bloom, message) {
         }
         return true;
     } catch (err) {
+        console.error('Error in checkGroupCommandLock:', err);
         return true;
     }
 }

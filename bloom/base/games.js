@@ -1173,60 +1173,67 @@ module.exports = {
         }
     },
     async _autoStartGame(Bloom) {
-        const { Pokemon, BotSettings } = getModels(Bloom._instanceId);
-        let isRunning = true;
+        try {
+            const models = await createInstanceModels(Bloom._instanceId);
+            const { Pokemon, BotSettings } = models;
+            let isRunning = true;
 
-        // Check if this is the active instance from BotSettings
-        const settings = await BotSettings.findOne({});
-        if (!settings || settings.activeInstance !== Bloom._instanceId) {
-            console.log('This instance is not the active instance. Pokemon game will not run.');
-            return () => { isRunning = false; };
+            // Check if this is the active instance from BotSettings
+            const settings = await BotSettings.findOne({});
+            if (!settings || settings.activeInstance !== Bloom._instanceId) {
+                console.log('This instance is not the active instance. Pokemon game will not run.');
+                return () => { isRunning = false; };
+            }
+
+            console.log('Starting Pokemon game loop in the active instance');
+            
+            const gameLoop = async () => {
+                if (!isRunning) {
+                    console.log('Pokemon game loop stopped');
+                    return;
+                }
+                
+                // Verify this is still the active instance
+                const currentSettings = await BotSettings.findOne({});
+                if (!currentSettings || currentSettings.activeInstance !== Bloom._instanceId) {
+                    console.log('This instance is no longer active. Stopping Pokemon game.');
+                    isRunning = false;
+                    return;
+                }
+                
+                try {
+                    await loadPokemons(Bloom);
+                    await handleExpiredPokemons(Bloom);
+                } catch (error) {
+                    console.error('Pokemon game error:', error);
+                }
+                
+                // Schedule next run in 30 minutes
+                if (isRunning) {
+                    setTimeout(gameLoop, 30 * 60 * 1000); // 30 minutes in milliseconds
+                }
+            };
+
+            // Start the first iteration
+            gameLoop();
+
+            // Return cleanup function
+            return () => { 
+                console.log('Stopping Pokemon game loop');
+                isRunning = false; 
+            };
+        } catch (error) {
+            console.error('Error initializing Pokemon game:', error);
+            throw error;
         }
-
-        console.log('Starting Pokemon game loop in the active instance');
-        
-        const gameLoop = async () => {
-            if (!isRunning) {
-                console.log('Pokemon game loop stopped');
-                return;
-            }
-            
-            // Verify this is still the active instance
-            const currentSettings = await BotSettings.findOne({});
-            if (!currentSettings || currentSettings.activeInstance !== Bloom._instanceId) {
-                console.log('This instance is no longer active. Stopping Pokemon game.');
-                isRunning = false;
-                return;
-            }
-            
-            try {
-                await loadPokemons(Bloom);
-                await handleExpiredPokemons(Bloom);
-            } catch (error) {
-                console.error('Pokemon game error:', error);
-            }
-            
-            // Schedule next run in 30 minutes
-            if (isRunning) {
-                setTimeout(gameLoop, 30 * 60 * 1000); // 30 minutes in milliseconds
-            }
-        };
-
-        // Start the first iteration
-        gameLoop();
-
-        // Return cleanup function
-        return () => { 
-            console.log('Stopping Pokemon game loop');
-            isRunning = false; 
-        };
     }
 };
 
 // Helper functions
 
 async function loadPokemons(Bloom) {
-    const { Pokemon } = getModels(Bloom._instanceId);
+    const models = await createInstanceModels(Bloom._instanceId);
+    const { Pokemon } = models;
     try {
         const count = await Pokemon.countDocuments();
         if (count === 0) { // Only spawn if there are no active Pokemon
@@ -1258,7 +1265,8 @@ async function loadPokemons(Bloom) {
 }
 
 async function handleExpiredPokemons(Bloom) {
-    const { Pokemon } = getModels(Bloom._instanceId);
+    const models = await createInstanceModels(Bloom._instanceId);
+    const { Pokemon } = models;
     try {
         const expiredPokemons = await Pokemon.find({ timeout: { $lt: new Date() } });
         for (const pokemon of expiredPokemons) {

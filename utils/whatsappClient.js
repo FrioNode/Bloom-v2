@@ -52,14 +52,17 @@ async function start(instanceConfig, options = {}) {
                     options.onSuccess();
                 }
 
-                // Initialize command handler and reminder checker
+                // Initialize services sequentially with proper error handling
                 try {
+                    // Initialize command handler
                     await initCommandHandler(Bloom);
                     log(`✅ Command handler initialized (${instanceConfig.id})`);
                     
+                    // Initialize reminder checker
                     await startReminderChecker(Bloom);
                     log(`✅ Reminder checker started (${instanceConfig.id})`);
 
+                    // Initialize TicTacToe
                     await initializeTicTacToe(Bloom);
                     log(`✅ Ticktactoe cleaner started (${instanceConfig.id})`);
 
@@ -67,54 +70,55 @@ async function start(instanceConfig, options = {}) {
                     const { _autoStartGame } = require('../bloom/base/games');
                     await _autoStartGame(Bloom);
                     log(`✅ Pokemon game started (${instanceConfig.id})`);
-                } catch (error) {
-                    log(`❌ Error initializing bot services for ${instanceConfig.id}:`, error);
-                }
 
-                const activeInstance = await rotationManager.getCurrentActiveInstance();
-                if (instanceConfig.id === activeInstance) {
-                    log(`${setup.emoji} ${setup.botname} is now online`);
+                    // Get active instance after all services are initialized
+                    const activeInstance = await rotationManager.getCurrentActiveInstance();
+                    if (instanceConfig.id === activeInstance) {
+                        log(`${setup.emoji} ${setup.botname} is now online`);
 
-                    // Get instance-specific logschat
-                    const instanceConfig = setup.instances[activeInstance];
-                    const logschat = instanceConfig?.logschat || setup.bloomchat;
+                        // Get instance-specific logschat
+                        const instanceConfig = setup.instances[activeInstance];
+                        const logschat = instanceConfig?.logschat || setup.bloomchat;
 
-                    if (!setup.botname || !logschat || !setup.image) {
-                        log('⚠️ Missing essential config in colors/setup.js');
-                        log('Required: BOT_NAME, LOGS_CHAT/LOGS_CHAT_1, IMAGE');
-                        return;
-                    }
+                        if (!setup.botname || !logschat || !setup.image) {
+                            log('⚠️ Missing essential config in colors/setup.js');
+                            log('Required: BOT_NAME, LOGS_CHAT/LOGS_CHAT_1, IMAGE');
+                            return;
+                        }
 
-                    if (mess && mess.bloom && mess.powered) {
-                        const Payload = {
-                            image: { url: setup.image },
-                            caption: mess.bloom,
-                            contextInfo: {
-                                isForwarded: true,
-                                forwardingScore: 2,
-                                forwardedNewsletterMessageInfo: {
-                                    newsletterJid: setup.channelid,
-                                    newsletterName: setup.botname,
-                                    serverMessageId: -1,
+                        if (mess && mess.bloom && mess.powered) {
+                            const Payload = {
+                                image: { url: setup.image },
+                                caption: mess.bloom,
+                                contextInfo: {
+                                    isForwarded: true,
+                                    forwardingScore: 2,
+                                    forwardedNewsletterMessageInfo: {
+                                        newsletterJid: setup.channelid,
+                                        newsletterName: setup.botname,
+                                        serverMessageId: -1,
+                                    },
+                                    externalAdReply: {
+                                        title: setup.botname,
+                                        body: mess.powered,
+                                        thumbnailUrl: setup.image,
+                                        sourceUrl: setup.channel,
+                                        mediaType: 1,
+                                        renderLargerThumbnail: false,
+                                    },
                                 },
-                                externalAdReply: {
-                                    title: setup.botname,
-                                    body: mess.powered,
-                                    thumbnailUrl: setup.image,
-                                    sourceUrl: setup.channel,
-                                    mediaType: 1,
-                                    renderLargerThumbnail: false,
-                                },
-                            },
-                        };
+                            };
 
-                        
-                        try {
-                            await Bloom.sendMessage(logschat, Payload);
-                        } catch (error) {
-                            log('❌ Error sending startup message:', error);
+                            try {
+                                await Bloom.sendMessage(logschat, Payload);
+                            } catch (error) {
+                                log('❌ Error sending startup message:', error);
+                            }
                         }
                     }
+                } catch (error) {
+                    log(`❌ Error initializing bot services for ${instanceConfig.id}:`, error);
+                    // Don't throw here - we want to keep the connection alive even if some services fail
                 }
             }
 

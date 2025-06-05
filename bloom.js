@@ -16,7 +16,8 @@ async function getInstanceStats() {
     try {
         // Get the current active instance using rotationManager
         const activeInstance = await rotationManager.getCurrentActiveInstance();
-        const { User, Exp } = createInstanceModels(activeInstance);
+        const models = await createInstanceModels(activeInstance);
+        const { User, Exp } = models;
 
         // Get database statistics
         const [totalUsers, activeUsers24h, totalGroups, commandsToday] = await Promise.all([
@@ -72,7 +73,7 @@ async function getInstanceStats() {
         };
     } catch (error) {
         console.error('Error getting instance stats:', error);
-        return null;
+        throw error; // Propagate error to caller
     }
 }
 
@@ -122,7 +123,7 @@ app.get('/api/stats', async (req, res) => {
         res.json(stats);
     } catch (error) {
         console.error('Error in /api/stats:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });
 
@@ -137,7 +138,8 @@ app.get('/api/user-stats/:userId', async (req, res) => {
             return res.status(503).json({ error: 'No active bot instance' });
         }
 
-        const { User, Exp } = createInstanceModels(activeInstance);
+        const models = await createInstanceModels(activeInstance);
+        const { User, Exp } = models;
         const [user, exp] = await Promise.all([
             User.findById(userJid).lean(),
             Exp.findOne({ jid: userJid }).lean()
@@ -167,6 +169,6 @@ app.get('/api/user-stats/:userId', async (req, res) => {
         res.json(userStats);
     } catch (error) {
         console.error('Error in /api/user-stats:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });

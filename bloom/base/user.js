@@ -24,15 +24,19 @@ const LEVELS = [
 const instanceModelsCache = new Map();
 
 // Helper function to get models for the current instance
-function getModels(instanceId) {
+async function getModels(instanceId) {
     if (!instanceModelsCache.has(instanceId)) {
-        instanceModelsCache.set(instanceId, createInstanceModels(instanceId));
+        const models = await createInstanceModels(instanceId);
+        instanceModelsCache.set(instanceId, models);
     }
     return instanceModelsCache.get(instanceId);
 }
 
 // Initialize MongoDB connection
-connectDB('user');
+connectDB('user').catch(err => {
+    log('❌ Failed to connect to MongoDB:', err);
+    process.exit(1);
+});
 
 const locale = process.env.TZ || 'Africa/Nairobi';
 const getCurrentDate = () => {
@@ -144,7 +148,8 @@ module.exports = {
                     }, { quoted: message });
                 }
 
-                const { Exp } = getModels(Bloom._instanceId);
+                const models = await getModels(Bloom._instanceId);
+                const { Exp } = models;
                 const jid = message.key?.participant || message.key?.remoteJid;
                 const now = new Date();
 
@@ -195,9 +200,9 @@ ${bonusGiven ? `├ 🎁 Daily bonus claimed! (+${5 + Math.min(Math.floor(expDat
 
                 await Bloom.sendMessage(message.key.remoteJid, { text: response }, { quoted: message });
             } catch (err) {
-                console.error('EXP Command Error:', err);
-                await Bloom.sendMessage(message.key.remoteJid, { 
-                    text: '❌ An error occurred while checking your EXP. Please try again later.' 
+                console.error('Error in exp command:', err);
+                await Bloom.sendMessage(message.key.remoteJid, {
+                    text: '❌ An error occurred while fetching your EXP data.'
                 }, { quoted: message });
             }
         }
@@ -213,7 +218,7 @@ ${bonusGiven ? `├ 🎁 Daily bonus claimed! (+${5 + Math.min(Math.floor(expDat
                     }, { quoted: message });
                 }
 
-                const { Exp } = getModels(Bloom._instanceId);
+                const { Exp } = await getModels(Bloom._instanceId);
                 const topUsers = await Exp.find()
                     .sort({ points: -1 })
                     .limit(10)
@@ -266,7 +271,7 @@ ${bonusGiven ? `├ 🎁 Daily bonus claimed! (+${5 + Math.min(Math.floor(expDat
                     }, { quoted: message });
                 }
 
-                const { Exp } = getModels(Bloom._instanceId);
+                const { Exp } = await getModels(Bloom._instanceId);
                 const text = fulltext.trim().split(' ').slice(1).join(' ').trim();
                 let targetJid = message.message?.extendedTextMessage?.contextInfo?.participant;
 
@@ -329,7 +334,7 @@ ${bonusGiven ? `├ 🎁 Daily bonus claimed! (+${5 + Math.min(Math.floor(expDat
                     }, { quoted: message });
                 }
 
-                const { User, Exp } = getModels(Bloom._instanceId);
+                const { User, Exp } = await getModels(Bloom._instanceId);
                 const text = fulltext.trim().split(' ').slice(1).join(' ').trim();
                 let targetJid = message.message?.extendedTextMessage?.contextInfo?.participant;
 
@@ -394,7 +399,7 @@ ${bonusGiven ? `├ 🎁 Daily bonus claimed! (+${5 + Math.min(Math.floor(expDat
                     }, { quoted: message });
                 }
 
-                const { Exp } = getModels(Bloom._instanceId);
+                const { Exp } = await getModels(Bloom._instanceId);
                 const jid = message.key?.participant || message.key?.remoteJid;
                 const expData = await Exp.findOne({ jid }).lean();
                 
