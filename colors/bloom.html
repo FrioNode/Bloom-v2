@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BloomBot | MD</title>
+  <title>Bloom Multi Instance</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap" rel="stylesheet" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/typed.js/2.0.12/typed.min.js"></script>
@@ -235,7 +235,7 @@
   <div class="container">
     <div class="overlay"></div>
     <div class="content">
-      <h1>BloomBot MD</h1>
+      <h1>Bloom Multi Instance | WhastApp Bot</h1>
       <div class="typing-text" id="typing-text"></div>
 
       <!-- Dashboard Section -->
@@ -415,10 +415,8 @@
         const minutes = Math.floor((uptimeSeconds % 3600) / 60);
         const seconds = uptimeSeconds % 60;
 
-        document.getElementById('uptime-value').textContent = 
-            `${days}d ${hours}h ${minutes}m ${seconds}s`;
-        document.getElementById('runtime').innerText =
-            `BloomBot has been active for: ${days}d ${hours}h ${minutes}m ${seconds}s`;
+        document.getElementById('uptime-value').textContent = `${days}d ${hours}h ${minutes}m ${seconds}s`;
+      //  document.getElementById('runtime').innerText = `BloomBot has been active for: ${days}d ${hours}h ${minutes}m ${seconds}s`;
     }, 1000);
 
 </script>
