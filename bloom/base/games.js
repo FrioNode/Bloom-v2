@@ -1209,7 +1209,7 @@ module.exports = {
                 const user = await User.findById(senderID);
 
                 if (!user || !user.inventory || !user.inventory.pokemons || user.inventory.pokemons.length === 0) {
-                    await Bloom.sendMessage(message.key.remoteJid, { text: "You don't have any Pokémon in your inventory yet! You avent caught any." }, { quoted: message });
+                    await Bloom.sendMessage(message.key.remoteJid, { text: "You don't have any Pokémon in your inventory yet! You havent caught any." }, { quoted: message });
                     return;
                 }
 
