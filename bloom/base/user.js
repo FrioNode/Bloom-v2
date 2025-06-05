@@ -1,7 +1,7 @@
 const os = require('os');
 const { exec } = require('child_process');
 const { createInstanceModels, connectDB } = require('../../colors/schema');
-const { botname, cpyear, mode } = require('../../colors/setup');
+const { botname, cpyear, mode, timezone } = require('../../colors/setup');
 const mess = require('../../colors/mess');
 const mongoose = require('mongoose');
 
@@ -38,7 +38,7 @@ connectDB('user').catch(err => {
     process.exit(1);
 });
 
-const locale = process.env.TZ || 'Africa/Nairobi';
+const locale = timezone || 'Africa/Nairobi';
 const getCurrentDate = () => {
     return new Date().toLocaleString('en-US', { timeZone: locale });
 };
