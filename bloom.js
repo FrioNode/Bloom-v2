@@ -66,7 +66,7 @@ async function getInstanceStats() {
             activeUsers: activeUsers24h,
             totalGroups,
             commandsToday,
-            nextRotation: rotationManager.getNextRotationTime() || 8, // Fallback to 8 hours if no rotation is set
+            nextRotation: rotationManager.getNextRotationTime() || 8,
             uptime,
             activityData: { labels, values }
         };
