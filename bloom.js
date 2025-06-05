@@ -130,6 +130,7 @@ app.get('/api/stats', async (req, res) => {
 app.get('/api/user-stats/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
+        const userJid = userId + `@s.whatsapp.net`;
         const activeInstance = await rotationManager.getCurrentActiveInstance();
         
         if (!activeInstance) {
@@ -138,8 +139,8 @@ app.get('/api/user-stats/:userId', async (req, res) => {
 
         const { User, Exp } = createInstanceModels(activeInstance);
         const [user, exp] = await Promise.all([
-            User.findById(userId).lean(),
-            Exp.findOne({ jid: userId }).lean()
+            User.findById(userJid).lean(),
+            Exp.findOne({ jid: userJid }).lean()
         ]);
 
         if (!user && !exp) {
@@ -147,7 +148,7 @@ app.get('/api/user-stats/:userId', async (req, res) => {
         }
 
         const userStats = {
-            id: userId,
+            id: userJid,
             name: user?.name,
             economy: user ? {
                 walletBalance: user.walletBalance || 0,

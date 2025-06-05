@@ -116,10 +116,9 @@ class RotationManager {
 
     async broadcastRotationEvent(newActiveInstance) {
         try {
-            // Send rotation event to all instance log chats
             for (const instance of this.instances) {
                 if (instance.logschat) {
-                    const message = `┌──── 🔄 Instance Rotation ────\n├ New Active: ${newActiveInstance}\n└─ Previous: ${await this.getCurrentActiveInstance()}`;
+                   // const message = `┌──── 🔄 Instance Rotation ────\n├ New Active: ${newActiveInstance}\n└─ Previous: ${await this.getCurrentActiveInstance()}`;
                 }
             }
         } catch (error) {
