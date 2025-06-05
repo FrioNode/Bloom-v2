@@ -120,8 +120,6 @@ class RotationManager {
             for (const instance of this.instances) {
                 if (instance.logschat) {
                     const message = `┌──── 🔄 Instance Rotation ────\n├ New Active: ${newActiveInstance}\n└─ Previous: ${await this.getCurrentActiveInstance()}`;
-                    // Note: You'll need to implement the actual message sending logic
-                    // through your WhatsApp client here
                 }
             }
         } catch (error) {
