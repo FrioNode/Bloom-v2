@@ -3,6 +3,8 @@ const { createInstanceModels } = require('../../colors/schema');
 const { createGame, joinGame, endGame, renderBoard, makeMove } = require('../ttthandle');
 const { pokemon } = require('../../colors/pokemon');
 const { openchat } = require('../../colors/setup');
+const mess = require('../../colors/mess');
+const { log } = require('../../utils/logger');
 
 // Pokemon game configuration
 const pokemonNames = ['Pikachu', 'Charmander', 'Bulbasaur', 'Squirtle', 'Jigglypuff', 'Meowth', 'Psyduck', 'Eevee', 'Snorlax', 'Mewtwo'];
@@ -26,15 +28,29 @@ const gambleMultipliers = {
     white: Math.floor(Math.random() * 1101) - 100
 };
 
-// Cache for instance models
-const instanceModelsCache = new Map();
+// Cache models per instance
+const modelCache = new Map();
 
-// Helper function to get models for the current instance
-function getModels(instanceId) {
-    if (!instanceModelsCache.has(instanceId)) {
-        instanceModelsCache.set(instanceId, createInstanceModels(instanceId));
+/**
+ * Get or initialize models for an instance
+ * @param {string} instanceId - The instance ID
+ * @returns {Promise<Object>} The instance models
+ */
+async function getInstanceModels(instanceId) {
+    let models = modelCache.get(instanceId);
+    if (!models) {
+        try {
+            models = await createInstanceModels(instanceId);
+            if (!models?.User) {
+                throw new Error(`Failed to initialize User model for instance ${instanceId}`);
+            }
+            modelCache.set(instanceId, models);
+        } catch (error) {
+            log(`Failed to initialize models for instance ${instanceId}:`, error);
+            return null;
+        }
     }
-    return instanceModelsCache.get(instanceId);
+    return models;
 }
 
 // Helper function to get or create user
@@ -79,7 +95,7 @@ module.exports = {
         desc: 'Check your wallet and bank balance',
         run: async (Bloom, message, fulltext) => {
             try {
-                const { User } = getModels(Bloom._instanceId);
+                const { User } = getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 
                 const user = await getOrCreateUser(User, senderID);
@@ -117,47 +133,74 @@ module.exports = {
     },
 
     reg: {
-        type: 'economy',
-        desc: 'Register or update your economy profile',
+        type: 'game',
+        desc: 'Register to use bot features',
+        usage: 'reg <name>',
         run: async (Bloom, message, fulltext) => {
             try {
-                const { User } = getModels(Bloom._instanceId);
-                const senderID = message.key.participant || message.key.remoteJid;
-                const arg = fulltext.trim().split(/\s+/)[1];
-                let name = arg || generateRandomName();
-
-                if (!isValidName(name)) {
+                const sender = message.key.participant || message.key.remoteJid;
+                if (!sender) {
                     return await Bloom.sendMessage(message.key.remoteJid, { 
-                        text: 'Invalid name. Name must be at least 4 characters long, contain only letters, and no symbols.' 
+                        text: '❌ Could not identify sender' 
                     }, { quoted: message });
                 }
 
-                let user = await User.findById(senderID);
-                if (user) {
-                    const oldName = user.name;
-                    user.name = name;
-                    await user.save();
+                const name = fulltext.split(' ').slice(1).join(' ').trim();
+                if (!name) {
                     return await Bloom.sendMessage(message.key.remoteJid, { 
-                        text: `✅ Name updated successfully!\n\n*Old Name:* ${oldName}\n*New Name:* ${name}` 
+                        text: '❌ Please provide a name for registration\nUsage: !reg <name>' 
                     }, { quoted: message });
-                } else {
-                    user = await getOrCreateUser(User, senderID, name);
-                    if (!user) {
+                }
+
+                // Get or initialize instance models
+                const models = await getInstanceModels(Bloom._instanceId);
+                if (!models) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Registration failed: Database connection error' 
+                    }, { quoted: message });
+                }
+
+                const { User } = models;
+
+                try {
+                    let user = await User.findById(sender);
+                    if (user) {
                         return await Bloom.sendMessage(message.key.remoteJid, { 
-                            text: '❌ Registration failed. Please try again.' 
+                            text: '❌ You are already registered!' 
                         }, { quoted: message });
                     }
-                    return await Bloom.sendMessage(message.key.remoteJid, { 
-                        text: `✨ *Welcome to the Economy!*\n\n` +
-                              `👤 *Name:* ${name}\n` +
-                              `💰 *Starting Balance:* 0\n\n` +
-                              `Use !help economy to see available commands!`
+
+                    user = await User.create({
+                        _id: sender,
+                        name: name,
+                        walletBalance: 1000,
+                        bankBalance: 0,
+                        lastActivity: new Date(),
+                        inventory: {
+                            mining: [],
+                            magic: [],
+                            fishing: [],
+                            healing: [],
+                            animals: [],
+                            stones: [],
+                            pokemons: []
+                        }
+                    });
+
+                    await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: `✅ Successfully registered!\n\n👤 Name: ${name}\n💰 Starting balance: 1000` 
+                    }, { quoted: message });
+
+                } catch (err) {
+                    log(`Database error in registration for user ${sender}:`, err);
+                    await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Registration failed: Database error' 
                     }, { quoted: message });
                 }
             } catch (error) {
-                console.error('Registration error:', error);
-                return await Bloom.sendMessage(message.key.remoteJid, { 
-                    text: '❌ An error occurred during registration.' 
+                log('Registration error:', error);
+                await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred during registration' 
                 }, { quoted: message });
             }
         }
@@ -168,7 +211,7 @@ module.exports = {
         desc: 'Deposit money into your bank account',
         run: async (Bloom, message, fulltext) => {
             try {
-                const { User } = getModels(Bloom._instanceId);
+                const { User } = getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 const arg = parseFloat(fulltext.trim().split(/\s+/)[1]);
 
@@ -231,7 +274,7 @@ module.exports = {
         desc: 'Withdraw money from your bank account',
         run: async (Bloom, message, fulltext) => {
             try {
-                const { User } = getModels(Bloom._instanceId);
+                const { User } = getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 const arg = parseFloat(fulltext.trim().split(/\s+/)[1]);
 
@@ -301,7 +344,7 @@ module.exports = {
         desc: 'Transfer money to another user',
         run: async (Bloom, message, fulltext) => {
             try {
-                const { User } = getModels(Bloom._instanceId);
+                const { User } = getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 const args = fulltext.trim().split(/\s+/);
                 const amount = parseFloat(args[1]);
@@ -411,7 +454,7 @@ module.exports = {
         desc: 'View available items in the shop',
         run: async (Bloom, message) => {
             try {
-                const { User } = getModels(Bloom._instanceId);
+                const { User } = getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 
                 const user = await getOrCreateUser(User, senderID);
@@ -464,7 +507,7 @@ module.exports = {
         desc: 'Purchase an item from the shop',
         run: async (Bloom, message, fulltext) => {
             try {
-                const { User } = getModels(Bloom._instanceId);
+                const { User } = getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 const itemName = fulltext.trim().split(/\s+/)[1]?.toLowerCase();
 
@@ -549,81 +592,67 @@ module.exports = {
         type: 'economy',
         desc: 'View your inventory',
         run: async (Bloom, message) => {
-            const { User } = getModels(Bloom._instanceId);
-            const senderID = message.key.participant || message.key.remoteJid;
-            const user = await User.findById(senderID);
-            let inventoryMessage = `╭───── ${user.name} ─────\n│-- _Your inventory_ --\n`;
+            try {
+                const models = await getInstanceModels(Bloom._instanceId);
+                if (!models) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Failed to access inventory data. Please try again later.' 
+                    }, { quoted: message });
+                }
+                const { User } = models;
+                const senderID = message.key.participant || message.key.remoteJid;
+                const user = await User.findById(senderID);
 
-            function formatItems(items, itemType) {
-                const itemCount = {};
-                items.forEach(item => {
-                    itemCount[item.name] = (itemCount[item.name] || { count: 0, totalValue: 0 });
-                    itemCount[item.name].count++;
-                    itemCount[item.name].totalValue += item.value || item.miningUses;
-                });
-
-                let itemMessage = "";
-                for (const [name, { count, totalValue }] of Object.entries(itemCount)) {
-                    itemMessage += `│- ${name}  - ${count} | Usage: ${totalValue} time(s)\n`;
+                if (!user) {
+                    return await Bloom.sendMessage(message.key.remoteJid, {
+                        text: 'You need to register first to view inventory. Use !reg <n> to register.'
+                    }, { quoted: message });
                 }
 
-                if (itemMessage === "") itemMessage = `│- No ${itemType} items\n`;
-                return itemMessage;
+                let inventoryMessage = `╭───── ${user.name} ─────\n│-- _Your inventory_ --\n`;
+
+                function formatItems(items, itemType) {
+                    const itemCount = {};
+                    items.forEach(item => {
+                        itemCount[item.name] = (itemCount[item.name] || { count: 0, totalValue: 0 });
+                        itemCount[item.name].count++;
+                        itemCount[item.name].totalValue += item.value || item.miningUses;
+                    });
+
+                    let itemMessage = "";
+                    for (const [name, { count, totalValue }] of Object.entries(itemCount)) {
+                        itemMessage += `│- ${name}  - ${count} | Usage: ${totalValue} time(s)\n`;
+                    }
+
+                    if (itemMessage === "") itemMessage = `│- No ${itemType} items\n`;
+                    return itemMessage;
+                }
+
+                inventoryMessage += "│──── Mining items: ⛏️ ───\n";
+                inventoryMessage += formatItems(user.inventory.mining, "mining");
+                inventoryMessage += "│──── Magic items: 🪄 ───\n";
+                inventoryMessage += formatItems(user.inventory.magic, "magic");
+                inventoryMessage += "│──── Fishing items: 🎣 ───\n";
+                inventoryMessage += formatItems(user.inventory.fishing, "fishing");
+                inventoryMessage += "│──── Healing items: ☮️ ───\n";
+                inventoryMessage += formatItems(user.inventory.healing, "healing");
+                inventoryMessage += "│──── Zoo animals: 🦁 ───\n";
+                inventoryMessage += formatItems(user.inventory.animals, "animals");
+                inventoryMessage += "│──── Stones: 💎 ───\n";
+                inventoryMessage += formatItems(user.inventory.stones, "stones");
+                inventoryMessage += "│──── Pokemon: ⭐ ───\n";
+                inventoryMessage += formatItems(user.inventory.pokemons, "pokemon");
+                inventoryMessage += "╰─────────────────";
+
+                return await Bloom.sendMessage(message.key.remoteJid, {
+                    text: inventoryMessage
+                }, { quoted: message });
+            } catch (error) {
+                console.error('Inventory error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while accessing your inventory. Please try again later.' 
+                }, { quoted: message });
             }
-
-            inventoryMessage += "│──── Mining items: ⛏️ ───\n";
-            inventoryMessage += formatItems(user.inventory.mining, "mining");
-            inventoryMessage += "│──── Magic items: 🪄 ───\n";
-            inventoryMessage += formatItems(user.inventory.magic, "magic");
-            inventoryMessage += "│──── Fishing items: 🎣 ───\n";
-            inventoryMessage += formatItems(user.inventory.fishing, "fishing");
-            inventoryMessage += "│──── Healing items: ☮️ ───\n";
-            inventoryMessage += formatItems(user.inventory.healing, "healing");
-            inventoryMessage += "│──── Zoo animals: 🦁 ───\n";
-
-            if (user.inventory.animals.length > 0) {
-                const animalCount = {};
-                let totalAnimalValue = 0;
-                user.inventory.animals.forEach(animal => animalCount[animal.name] = (animalCount[animal.name] || 0) + 1);
-
-                for (const [animalName, count] of Object.entries(animalCount)) {
-                    const animal = user.inventory.animals.find(a => a.name === animalName);
-                    const totalValue = animal.value * count;
-                    totalAnimalValue += totalValue;
-                    inventoryMessage += `│- ${animalName} | Count: ${count}, Value: ${totalValue} 💰\n`;
-                }
-
-                inventoryMessage += `│──>Total Animal Value: ${totalAnimalValue} 💰\n`;
-            } else {
-                inventoryMessage += "│- No animals\n";
-            }
-
-            inventoryMessage += "│──── Rare stones: 🪨 ───\n";
-
-            if (user.inventory.stones.length > 0) {
-                const stoneCount = {};
-                let totalStoneValue = 0;
-
-                user.inventory.stones.forEach(stone => {
-                    if (!stoneCount[stone.name]) stoneCount[stone.name] = { count: 0, totalValue: 0 };
-                    stoneCount[stone.name].count++;
-                    stoneCount[stone.name].totalValue += stone.value;
-                });
-
-                for (const [stoneName, { count, totalValue }] of Object.entries(stoneCount)) {
-                    inventoryMessage += `│- ${stoneName} - ${count} | Value: ${totalValue} 💰\n`;
-                }
-
-                for (const { totalValue } of Object.values(stoneCount)) {
-                    totalStoneValue += totalValue;
-                }
-
-                inventoryMessage += `│──> Total Stones Value: ${totalStoneValue} 💰\n╰──────────────────`;
-            } else {
-                inventoryMessage += "│- No stones\n╰──────────────────";
-            }
-
-            Bloom.sendMessage(message.key.remoteJid, { text: inventoryMessage }, { quoted: message });
         }
     },
 
@@ -632,7 +661,7 @@ module.exports = {
         desc: 'Go hunting for animals',
         run: async (Bloom, message) => {
             try {
-                const { User } = getModels(Bloom._instanceId);
+                const { User } = getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 
                 // Get or create user
@@ -715,7 +744,7 @@ module.exports = {
         type: 'economy',
         desc: 'Go fishing for aquatic animals',
         run: async (Bloom, message) => {
-            const { User } = getModels(Bloom._instanceId);
+            const { User } = getInstanceModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
             const currentDate = new Date();
@@ -744,39 +773,81 @@ module.exports = {
         type: 'economy',
         desc: 'Gamble your money on colors',
         run: async (Bloom, message, fulltext) => {
-            const { User } = getModels(Bloom._instanceId);
-            const senderID = message.key.participant || message.key.remoteJid;
-            const parts = fulltext.trim().split(/\s+/);
-            const color = parts[1];
-            const betAmountStr = parts[2];
-            console.log(color)
-            console.log(betAmountStr)
-            const betAmount = parseInt(betAmountStr, 10);
+            try {
+                const models = await getInstanceModels(Bloom._instanceId);
+                if (!models) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Failed to access game data. Please try again later.' 
+                    }, { quoted: message });
+                }
+                const { User } = models;
+                const senderID = message.key.participant || message.key.remoteJid;
+                const parts = fulltext.trim().split(/\s+/);
+                const color = parts[1];
+                const betAmountStr = parts[2];
+                const betAmount = parseInt(betAmountStr, 10);
 
-            if (!gambleMultipliers[color]) return Bloom.sendMessage(message.key.remoteJid, { text: 'Invalid color. Please choose a valid color to gamble with.\neg: red, blue, green, yellow, purple, orange, pink, black, white' }, { quoted: message });
-            if (isNaN(betAmount)) return Bloom.sendMessage(message.key.remoteJid, { text: 'Invalid bet amount. Please provide a valid positive number.' }, { quoted: message });
+                if (!gambleMultipliers[color]) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'Invalid color. Please choose a valid color to gamble with.\neg: red, blue, green, yellow, purple, orange, pink, black, white' 
+                    }, { quoted: message });
+                }
+                if (isNaN(betAmount)) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'Invalid bet amount. Please provide a valid positive number.' 
+                    }, { quoted: message });
+                }
 
-            const user = await User.findById(senderID);
-            if (user.walletBalance < betAmount) return Bloom.sendMessage(message.key.remoteJid, { text: 'You do not have enough funds to gamble.' }, { quoted: message });
-            if (betAmount > 10000) return Bloom.sendMessage(message.key.remoteJid, { text: 'You cannot gamble more than 10,000 💰.' }, { quoted: message });
+                const user = await User.findById(senderID);
+                if (!user) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You need to register first to gamble. Use !reg <n> to register.' 
+                    }, { quoted: message });
+                }
 
-            user.walletBalance -= betAmount;
-            const multiplier = gambleMultipliers[color];
-            const winnings = betAmount * (multiplier / 100);
-            let resultMessage = `You chose ${color}. `;
+                if (user.walletBalance < betAmount) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You do not have enough funds to gamble.' 
+                    }, { quoted: message });
+                }
+                if (betAmount > 10000) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You cannot gamble more than 10,000 💰.' 
+                    }, { quoted: message });
+                }
 
-            if (winnings > 0) {
+                user.walletBalance -= betAmount;
+                const multiplier = gambleMultipliers[color];
+                const winnings = betAmount * (multiplier / 100);
+                
                 user.walletBalance += winnings;
-                user.transactionHistory.push({type: 'gamble', arg: betAmount, result: 'win', transactionFee: 0 });
+                user.lastGamble = new Date();
+                user.transactionHistory.push({
+                    type: 'gamble',
+                    arg: betAmount,
+                    result: winnings > 0 ? 'win' : 'loss',
+                    item: color
+                });
+                
                 await user.save();
-                resultMessage += `Congratulations! You won ${winnings.toFixed(2)} 💰. Your new wallet balance is ${user.walletBalance} 💰.`;
-            } else {
-                user.transactionHistory.push({ type: 'gamble', arg: betAmount, result: 'lose', transactionFee: 0 });
-                await user.save();
-                resultMessage += `Sorry, you lost ${betAmount} 💰. Your new wallet balance is ${user.walletBalance} 💰.`;
-            }
 
-            Bloom.sendMessage(message.key.remoteJid, { text: resultMessage }, { quoted: message });
+                let resultMessage = `You chose ${color}. `;
+                if (winnings > 0) {
+                    resultMessage += `🎉 You won ${winnings.toFixed(0)} 💰!`;
+                } else {
+                    resultMessage += `😢 You lost ${Math.abs(winnings).toFixed(0)} 💰.`;
+                }
+                resultMessage += `\nNew balance: ${user.walletBalance.toFixed(0)} 💰`;
+
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: resultMessage 
+                }, { quoted: message });
+            } catch (error) {
+                console.error('Gamble error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while processing your gamble. Please try again later.' 
+                }, { quoted: message });
+            }
         }
     },
 
@@ -784,53 +855,72 @@ module.exports = {
         type: 'economy',
         desc: 'Work to earn money',
         run: async (Bloom, message) => {
-            const { User } = getModels(Bloom._instanceId);
-            const senderID = message.key.participant || message.key.remoteJid;
-            const user = await User.findById(senderID);
+            try {
+                const models = await getInstanceModels(Bloom._instanceId);
+                if (!models) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Failed to access game data. Please try again later.' 
+                    }, { quoted: message });
+                }
+                const { User } = models;
+                const senderID = message.key.participant || message.key.remoteJid;
+                const user = await User.findById(senderID);
 
-            // Check if user is registered
-            if (!user) {
-                return Bloom.sendMessage(
+                // Check if user is registered
+                if (!user) {
+                    return await Bloom.sendMessage(
+                        message.key.remoteJid,
+                        { text: 'You need to register first to use the work command. Use !reg <n> to register.' },
+                        { quoted: message }
+                    );
+                }
+
+                const currentTime = new Date();
+                const lastWorkTime = new Date(user.lastWork);
+                const timeDifference = currentTime - lastWorkTime;
+
+                if (timeDifference < 3600000) {
+                    const minutesLeft = Math.ceil((3600000 - timeDifference) / 60000);
+                    return await Bloom.sendMessage(
+                        message.key.remoteJid,
+                        { text: `⏳ You can work again in ${minutesLeft} minute(s).` },
+                        { quoted: message }
+                    );
+                }
+
+                const jobs = {
+                    'scientist': 400,
+                    'miner': 200,
+                    'farmer': 150,
+                    'fisher': 100,
+                    'blacksmith': 300,
+                    'dentist': 350
+                };
+                const jobKeys = Object.keys(jobs);
+                const randomJob = jobKeys[Math.floor(Math.random() * jobKeys.length)];
+                const earnings = jobs[randomJob];
+
+                user.walletBalance += earnings;
+                user.lastWork = currentTime;
+                user.transactionHistory.push({ 
+                    type: 'work', 
+                    arg: earnings, 
+                    result: 'success',
+                    date: currentTime
+                });
+                await user.save();
+
+                return await Bloom.sendMessage(
                     message.key.remoteJid,
-                    { text: 'You need to register first to use the work command. Use !reg <name> to register.' },
+                    { text: `👷‍♂️ You worked as a ${randomJob} and earned ${earnings} 💰. Your new wallet balance is ${user.walletBalance} 💰.` },
                     { quoted: message }
                 );
+            } catch (error) {
+                console.error('Work command error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while processing your work command. Please try again later.' 
+                }, { quoted: message });
             }
-
-            const currentTime = new Date();
-            const lastWorkTime = new Date(user.lastWork);
-            const timeDifference = currentTime - lastWorkTime;
-
-            if (timeDifference < 3600000) {
-                return Bloom.sendMessage(
-                    message.key.remoteJid,
-                    { text: '⏳ You can work again in an hour.' },
-                    { quoted: message }
-                );
-            }
-
-            const jobs = {
-                'scientist': 400,
-                'miner': 200,
-                'farmer': 150,
-                'fisher': 100,
-                'blacksmith': 300,
-                'dentist': 350
-            };
-            const jobKeys = Object.keys(jobs);
-            const randomJob = jobKeys[Math.floor(Math.random() * jobKeys.length)];
-            const earnings = jobs[randomJob];
-
-            user.walletBalance += earnings;
-            user.lastWork = currentTime;
-            user.transactionHistory.push({ type: 'work', arg: earnings, result: 'success' });
-            await user.save();
-
-            Bloom.sendMessage(
-                message.key.remoteJid,
-                { text: `👷‍♂️ You worked as a ${randomJob} and earned ${earnings} 💰. Your new wallet balance is ${user.walletBalance} 💰.` },
-                { quoted: message }
-            );
         }
     },
 
@@ -838,7 +928,7 @@ module.exports = {
         type: 'economy',
         desc: 'Claim your daily reward',
         run: async (Bloom, message) => {
-            const { User } = getModels(Bloom._instanceId);
+            const { User } = getInstanceModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
 
@@ -869,7 +959,7 @@ module.exports = {
         type: 'economy',
         desc: 'Sell items from your inventory',
         run: async (Bloom, message, fulltext) => {
-            const { User } = getModels(Bloom._instanceId);
+            const { User } = getInstanceModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const arg = fulltext.trim().split(/\s+/)[1];
             const user = await User.findById(senderID);
@@ -912,57 +1002,117 @@ module.exports = {
         type: 'economy',
         desc: 'Mine for stones using your tools',
         run: async (Bloom, message) => {
-            const { User } = getModels(Bloom._instanceId);
-            const senderID = message.key.participant || message.key.remoteJid;
-            const user = await User.findById(senderID);
+            try {
+                const models = await getInstanceModels(Bloom._instanceId);
+                if (!models) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Failed to access game data. Please try again later.' 
+                    }, { quoted: message });
+                }
+                const { User } = models;
+                const senderID = message.key.participant || message.key.remoteJid;
+                const user = await User.findById(senderID);
 
-            if (!user) return Bloom.sendMessage(message.key.remoteJid, { text: "You don't exist in the economy." }, { quoted: message });
+                if (!user) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You need to register first to mine. Use !reg <n> to register.' 
+                    }, { quoted: message });
+                }
 
-            const toolLimits = { wooden_axe: 5, iron_axe: 10, golden_axe: 20, diamond_axe: 15 };
-            const stoneTypes = {
-                wooden_axe: ['coal'],
-                iron_axe: ['coal','iron'],
-                diamond_axe: ['coal','iron','diamond'],
-                golden_axe:['coal','iron','diamond','gold']
-            };
+                if (!user.inventory.mining || user.inventory.mining.length === 0) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: "You don't have any mining tools! Use !shop to buy some." 
+                    }, { quoted: message });
+                }
 
-            const miningTool = user.inventory.mining.find(tool => tool.name);
-            if (!miningTool) return Bloom.sendMessage(message.key.remoteJid, { text: "You don't have any mining tools!" }, { quoted: message });
+                const toolLimits = { 
+                    wooden_axe: 5, 
+                    iron_axe: 10, 
+                    golden_axe: 20, 
+                    diamond_axe: 15 
+                };
 
-            const tool = miningTool.name;
-            const availableStones = stoneTypes[tool];
-            const randomStone = availableStones[Math.floor(Math.random() * availableStones.length)];
-            const randomSize = sizes[Math.floor(Math.random() * sizes.length)];
-            let stoneValue;
+                const stoneTypes = {
+                    wooden_axe: ['coal'],
+                    iron_axe: ['coal', 'iron'],
+                    diamond_axe: ['coal', 'iron', 'diamond'],
+                    golden_axe: ['coal', 'iron', 'diamond', 'gold']
+                };
 
-            if (randomSize === 'small') stoneValue = 50;
-            else if (randomSize === 'medium') stoneValue = 100;
-            else stoneValue = 200;
+                // Find the first usable tool
+                const miningTool = user.inventory.mining.find(tool => {
+                    const limit = toolLimits[tool.name];
+                    return limit && (!tool.miningUses || tool.miningUses < limit);
+                });
 
-            user.inventory.stones.push({ name: randomStone, value: stoneValue });
-            let toolUsage = miningTool.miningUses || 0;
-            toolUsage++;
-            miningTool.miningUses = toolUsage;
+                if (!miningTool) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: "All your mining tools are worn out! Buy new ones from the shop." 
+                    }, { quoted: message });
+                }
 
-            if (toolUsage >= toolLimits[tool]) {
-                const toolIndex = user.inventory.mining.findIndex(t => t.name === tool);
-                if (toolIndex !== -1) user.inventory.mining.splice(toolIndex, 1);
-                user.transactionHistory.push({ type: 'mine', item: randomStone, result: 'success', arg: stoneValue });
+                const tool = miningTool.name;
+                const availableStones = stoneTypes[tool];
+                if (!availableStones) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: "Invalid mining tool! Please report this to the bot owner." 
+                    }, { quoted: message });
+                }
+
+                const randomStone = availableStones[Math.floor(Math.random() * availableStones.length)];
+                const randomSize = sizes[Math.floor(Math.random() * sizes.length)];
+                const stoneValue = randomSize === 'small' ? 50 : randomSize === 'medium' ? 100 : 200;
+
+                user.inventory.stones.push({ 
+                    name: randomStone, 
+                    value: stoneValue 
+                });
+
+                miningTool.miningUses = (miningTool.miningUses || 0) + 1;
+                const usesLeft = toolLimits[tool] - miningTool.miningUses;
+
+                if (usesLeft <= 0) {
+                    // Remove the broken tool
+                    user.inventory.mining = user.inventory.mining.filter(t => t !== miningTool);
+                    user.transactionHistory.push({ 
+                        type: 'mine', 
+                        item: randomStone, 
+                        result: 'success', 
+                        arg: stoneValue,
+                        date: new Date()
+                    });
+                    await user.save();
+
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: `You used your ${tool} and mined a ${randomSize} ${randomStone} rock worth ${stoneValue} 💰.\n\nYour ${tool} has broken after ${miningTool.miningUses} uses! You need a new one.` 
+                    }, { quoted: message });
+                }
+
+                user.transactionHistory.push({ 
+                    type: 'mine', 
+                    item: randomStone, 
+                    result: 'success', 
+                    arg: stoneValue,
+                    date: new Date()
+                });
                 await user.save();
-                return Bloom.sendMessage(message.key.remoteJid, { text: `You used your ${tool} and mined a ${randomSize} ${randomStone} rock worth ${stoneValue} 💰.\n\nYour ${tool} has broken after ${toolUsage} uses! You need a new one.` }, { quoted: message });
+
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: `You used your ${tool} and mined a ${randomSize} ${randomStone} rock worth ${stoneValue} 💰. Your ${tool} has ${usesLeft} uses left.` 
+                }, { quoted: message });
+            } catch (error) {
+                console.error('Mining error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while mining. Please try again later.' 
+                }, { quoted: message });
             }
-
-            user.transactionHistory.push({ type: 'mine', item: randomStone, result: 'success', arg: stoneValue });
-            await user.save();
-
-            return Bloom.sendMessage(message.key.remoteJid, { text: `You used your ${tool} and mined a ${randomSize} ${randomStone} rock worth ${stoneValue} 💰. Your ${tool} has ${toolLimits[tool] - toolUsage} uses left.` }, { quoted: message });
         }
     },
     reset: {
         type: 'economy',
         desc: 'Reset your Economy account (warning: irreversible)',
         run: async (Bloom, message) => {
-            const { User } = getModels(Bloom._instanceId);
+            const { User } = getInstanceModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
 
@@ -985,33 +1135,68 @@ module.exports = {
         type: 'games',
         desc: 'Catch a Pokémon that has appeared',
         run: async (Bloom, message, fulltext) => {
-            const { Pokemon } = getModels(Bloom._instanceId);
-            const senderID = message.key.participant || message.key.remoteJid;
-            const arg = fulltext.trim().split(/\s+/)[1];
-            const pokemon = await Pokemon.findOne({ name: { $regex: new RegExp('^' + arg + '$', 'i') } });
+            try {
+                const models = await getInstanceModels(Bloom._instanceId);
+                if (!models) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Failed to access game data. Please try again later.' 
+                    }, { quoted: message });
+                }
+                const { Pokemon, User } = models;
+                const senderID = message.key.participant || message.key.remoteJid;
+                const arg = fulltext.trim().split(/\s+/)[1];
 
-            if (!pokemon) return Bloom.sendMessage(message.key.remoteJid, { text: 'No claimable Pokémon found with that name, check your spelling mistake and try again.' }, { quoted: message });
+                if (!arg) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: '❌ Please specify which Pokemon to catch!' 
+                    }, { quoted: message });
+                }
 
-            const currentTime = new Date();
-            if (currentTime.getTime() > pokemon.timeout.getTime()) return Bloom.sendMessage(message.key.remoteJid, { text: `The Pokémon ${pokemon.name} has expired and is no longer available for claim.` }, { quoted: message });
+                const pokemon = await Pokemon.findOne({ 
+                    name: { $regex: new RegExp('^' + arg + '$', 'i') } 
+                });
 
-            const user = await User.findOne({ _id: senderID });
-            if (!user) return Bloom.sendMessage(message.key.remoteJid, { text: 'You are not registered yet. Please register first using the command: !reg <name>' }, { quoted: message });
+                if (!pokemon) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'No claimable Pokémon found with that name, check your spelling mistake and try again.' 
+                    }, { quoted: message });
+                }
 
-            user.inventory.pokemons.push({
-                name: pokemon.name,
-                height: pokemon.height,
-                weight: pokemon.weight,
-                image: pokemon.image,
-                description: pokemon.description
-            });
+                const currentTime = new Date();
+                if (currentTime.getTime() > pokemon.timeout.getTime()) {
+                    await Pokemon.deleteOne({ _id: pokemon._id });
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: `The Pokémon ${pokemon.name} has expired and is no longer available for claim.` 
+                    }, { quoted: message });
+                }
 
-            await user.save();
-            await Pokemon.deleteOne({ name: pokemon.name });
+                const user = await User.findById(senderID);
+                if (!user) {
+                    return await Bloom.sendMessage(message.key.remoteJid, { 
+                        text: 'You are not registered yet. Please register first using the command: !reg <n>' 
+                    }, { quoted: message });
+                }
 
-            return Bloom.sendMessage(message.key.remoteJid, {
-                text: `Congratulations! You have successfully claimed ${pokemon.name}\n\n${pokemon.description}.\nHeight: ${pokemon.height} \t\t\t Weight: ${pokemon.weight}`
-            }, { quoted: message });
+                user.inventory.pokemons.push({
+                    name: pokemon.name,
+                    height: pokemon.height,
+                    weight: pokemon.weight,
+                    image: pokemon.image,
+                    description: pokemon.description
+                });
+
+                await user.save();
+                await Pokemon.deleteOne({ _id: pokemon._id });
+
+                return await Bloom.sendMessage(message.key.remoteJid, {
+                    text: `Congratulations! You have successfully claimed ${pokemon.name}\n\n${pokemon.description}.\nHeight: ${pokemon.height} \t\t\t Weight: ${pokemon.weight}`
+                }, { quoted: message });
+            } catch (error) {
+                console.error('Pokemon catch error:', error);
+                return await Bloom.sendMessage(message.key.remoteJid, { 
+                    text: '❌ An error occurred while catching the Pokemon. Please try again later.' 
+                }, { quoted: message });
+            }
         }
     },
     pokes: {
@@ -1019,7 +1204,7 @@ module.exports = {
         desc: 'View your Pokémon collection',
         run: async (Bloom, message) => {
             try {
-                const { User } = getModels(Bloom._instanceId);
+                const { User } = getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 const user = await User.findById(senderID);
 
@@ -1048,7 +1233,7 @@ module.exports = {
         type: 'games',
         desc: 'View any Pokémon details by name or ID',
         run: async (Bloom, message, fulltext) => {
-            const { Pokemon } = getModels(Bloom._instanceId);
+            const { Pokemon } = getInstanceModels(Bloom._instanceId);
             const input = fulltext.trim().split(/\s+/)[1]?.toLowerCase();
             const chatId = message.key.remoteJid;
 
@@ -1148,6 +1333,8 @@ module.exports = {
                     const res = await endGame(Bloom, sender);
                     if (res.error) {
                         return await Bloom.sendMessage(groupId, { text: res.error });
+
+                        
                     }
                     return await Bloom.sendMessage(groupId, {
                         text: `✅ Game ended by @${sender.split('@')[0]}`,
