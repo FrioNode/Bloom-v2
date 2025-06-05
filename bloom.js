@@ -1,7 +1,7 @@
 const { botname } = require('./colors/setup');
 const express = require('express');
 const rotationManager = require('./utils/rotationManager');
-const startupManager = require('./uitls/startupManager');
+const startupManager = require('./utils/startupManager');
 const { log } = require('./utils/logger');
 const path = require('path');
 const { createInstanceModels } = require('./colors/schema');
