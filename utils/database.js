@@ -4,27 +4,50 @@ const { mongo } = require('../colors/setup');
 
 const uri = mongo || process.env.MONGODB_URI || 'mongodb://localhost:27017/bloom';
 let isConnected = false;
+let connectionPromise = null;
 
 async function connect() {
-    if (isConnected) return;
-
-    try {
-        await mongoose.connect(uri, {
-            maxPoolSize: 10,
-            serverSelectionTimeoutMS: 5000,
-            socketTimeoutMS: 45000,
-            family: 4, // Force IPv4
-            connectTimeoutMS: 10000,
-            retryWrites: true,
-            w: 'majority'
-        });
-        
-        isConnected = true;
-        log('✅ MongoDB connected successfully');
-    } catch (error) {
-        log('❌ MongoDB connection error:', error);
-        throw error;
+    if (connectionPromise) {
+        return connectionPromise;
     }
+
+    connectionPromise = new Promise(async (resolve, reject) => {
+        try {
+            if (isConnected) {
+                resolve();
+                return;
+            }
+
+            // Clear any existing connections
+            if (mongoose.connection.readyState !== 0) {
+                await mongoose.connection.close();
+            }
+
+            await mongoose.connect(uri, {
+                maxPoolSize: 50,
+                minPoolSize: 10,
+                serverSelectionTimeoutMS: 30000,
+                socketTimeoutMS: 45000,
+                family: 4,
+                connectTimeoutMS: 30000,
+                retryWrites: true,
+                w: 'majority',
+                keepAlive: true,
+                keepAliveInitialDelay: 300000
+            });
+
+            isConnected = true;
+            log('✅ MongoDB connected successfully');
+            resolve();
+        } catch (error) {
+            connectionPromise = null;
+            isConnected = false;
+            log('❌ MongoDB connection error:', error);
+            reject(error);
+        }
+    });
+
+    return connectionPromise;
 }
 
 mongoose.connection.on('connected', () => {
@@ -34,12 +57,15 @@ mongoose.connection.on('connected', () => {
 
 mongoose.connection.on('error', (err) => {
     isConnected = false;
+    connectionPromise = null;
     log('❌ MongoDB connection error:', err);
 });
 
 mongoose.connection.on('disconnected', () => {
     isConnected = false;
+    connectionPromise = null;
     log('❌ MongoDB disconnected');
+    
     // Attempt to reconnect
     setTimeout(() => {
         if (!isConnected) {
@@ -77,7 +103,7 @@ function createModel(instanceId, modelName, schema) {
 }
 
 // Wait for connection before allowing operations
-async function waitForConnection(timeout = 10000) {
+async function waitForConnection(timeout = 30000) {
     const start = Date.now();
     
     while (!isConnected && Date.now() - start < timeout) {
@@ -89,8 +115,12 @@ async function waitForConnection(timeout = 10000) {
     }
 }
 
+// Initialize connection at module load
+connect().catch(err => log('❌ Initial connection failed:', err));
+
 module.exports = { 
     createModel,
     connect,
-    waitForConnection
+    waitForConnection,
+    isConnected: () => isConnected
 }; 
