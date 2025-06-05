@@ -1478,17 +1478,3 @@ function isValidName(name) {
     const regex = /^[A-Za-z]{4,}$/;
     return regex.test(name);
 }
-
-/* Helper function to render the TTT board
-function renderBoard(board) {
-    const cells = board.map(cell => cell || '　');
-    return `╭───┬───┬───╮
-│ ${cells[0]} │ ${cells[1]} │ ${cells[2]} │
-├───┼───┼───┤
-│ ${cells[3]} │ ${cells[4]} │ ${cells[5]} │
-├───┼───┼───┤
-│ ${cells[6]} │ ${cells[7]} │ ${cells[8]} │
-╰───┴───┴───╯`;
-}
-
-*/
