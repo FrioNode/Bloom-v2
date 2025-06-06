@@ -43,9 +43,6 @@ async function instanceCheckMiddleware(Bloom, message, command) {
             return false;
         }
         
-        // Always allow bloom command
-        if (command === 'bloom') return true;
-
         // Get or initialize instance-specific model
         const BotSettings = await getInstanceModel(instanceId);
         if (!BotSettings) {

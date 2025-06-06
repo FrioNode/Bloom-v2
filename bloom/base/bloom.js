@@ -27,6 +27,21 @@ async function getInstanceModel(instanceId) {
     return BotSettings;
 }
 
+/**
+ * Get the current active instance from the database
+ * @param {mongoose.Model} BotSettings - The BotSettings model
+ * @returns {Promise<string>} The current active instance
+ */
+async function getCurrentActiveInstance(BotSettings) {
+    try {
+        const settings = await BotSettings.findById('global').select('activeInstance').lean();
+        return settings?.activeInstance || 'none';
+    } catch (error) {
+        console.error('Error getting current active instance:', error);
+        return 'none';
+    }
+}
+
 module.exports = {
     bloom: {
         type: 'owner',
@@ -56,20 +71,27 @@ module.exports = {
                 }
 
                 try {
-                    // Get or create settings
-                    let settings = await BotSettings.findById('global');
-                    if (!settings) {
-                        settings = await BotSettings.create({ 
-                            _id: 'global',
-                            activeInstance: targetInstance 
-                        });
-                    } else {
-                        // Update active instance
-                        settings.activeInstance = targetInstance;
-                        await settings.save();
-                    }
+                    // First get the current active instance
+                    const previousInstance = await getCurrentActiveInstance(BotSettings);
 
-                    const msg = `┌──── ⚙️ Instance Update ────\n├ Previous active: ${settings.activeInstance || 'none'}\n└─ Now active: ${targetInstance}`;
+                    // Perform the update as a separate operation
+                    await BotSettings.findByIdAndUpdate(
+                        'global',
+                        { 
+                            $set: { activeInstance: targetInstance },
+                            $setOnInsert: { _id: 'global' }
+                        },
+                        { 
+                            upsert: true,
+                            new: true
+                        }
+                    );
+
+                    // Small delay to ensure database consistency
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
+                    // Verify the update and send message
+                    const msg = `┌──── ⚙️ Instance Update ────\n├ Previous active: ${previousInstance}\n└─ Now active: ${targetInstance}`;
                     await Bloom.sendMessage(message.key.remoteJid, { text: msg });
                 } catch (error) {
                     console.error('Error updating bot settings:', error);
