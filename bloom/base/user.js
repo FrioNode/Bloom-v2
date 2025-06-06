@@ -4,6 +4,9 @@ const { createInstanceModels, connectDB } = require('../../colors/schema');
 const { botname, cpyear, mode, timezone } = require('../../colors/setup');
 const mess = require('../../colors/mess');
 const mongoose = require('mongoose');
+const fs = require('fs').promises;
+const path = require('path');
+const config = require('../../utils/config');
 
 const LEVELS = [
     { name: '👶 Baby', min: 0 },
@@ -77,6 +80,31 @@ const createProgressBar = (percent) => {
     const filled = '▓'.repeat(Math.floor(percent / 5));
     const empty = '░'.repeat(20 - Math.floor(percent / 5));
     return `[${filled}${empty}]`;
+};
+
+const normalizeJid = (jid) => {
+    if (!jid) return 'Not available';
+    // Remove device suffix and normalize
+    return jid.split(':')[0] + '@' + jid.split('@')[1];
+};
+
+const normalizeLid = (lid) => {
+    if (!lid) return 'Not available';
+    // Remove device suffix for LID
+    return lid.split(':')[0] + '@lid';
+};
+
+const loadBotCreds = async (instanceId) => {
+    try {
+        const instance = config.instances.find(i => i.id === instanceId);
+        if (!instance) return null;
+        
+        const credsPath = path.join(__dirname, '../..', instance.sessionDir, 'creds.json');
+        const data = await fs.readFile(credsPath, 'utf-8');
+        return JSON.parse(data);
+    } catch {
+        return null;
+    }
 };
 
 module.exports = {
@@ -253,10 +281,41 @@ ${bonusGiven ? `├ 🎁 Daily bonus claimed! (+${5 + Math.min(Math.floor(expDat
     },
     jid: {
         type: 'user',
-        desc: 'Returns the group or user JID of the chat',
+        desc: 'Returns the JID and LID information',
         run: async (Bloom, message) => {
+            const chatJid = message.key.remoteJid;
+            
+            // For sender info, check if the ID is actually a LID
+            let senderJid = message.key.participant || message.key.remoteJid;
+            let senderLid = null;
+            
+            // If the ID ends with @lid, it's a business account
+            if (senderJid.endsWith('@lid')) {
+                senderLid = normalizeLid(senderJid);
+                senderJid = 'Business Account';
+            } else {
+                // Check if there's a LID in the message
+                senderLid = message.key.lid || message.lid;
+                if (senderLid) senderLid = normalizeLid(senderLid);
+                if (senderJid) senderJid = normalizeJid(senderJid);
+            }
+
+            // Get bot info from creds.json
+            const creds = await loadBotCreds(Bloom._instanceId);
+            const botJid = normalizeJid(creds?.me?.id || Bloom.user?.id);
+            const botLid = normalizeLid(creds?.me?.lid || Bloom.me?.lid);
+
+            const infoText = `📱 *Chat Information*\n\n` +
+                           `*Chat JID:*\n${chatJid}\n\n` +
+                           `*Sender Info:*\n` +
+                           `├ JID: ${senderJid}\n` +
+                           `└ LID: ${senderLid || 'Not available'}\n\n` +
+                           `*Bot Info:*\n` +
+                           `├ JID: ${botJid}\n` +
+                           `└ LID: ${botLid}`;
+
             await Bloom.sendMessage(message.key.remoteJid, { 
-                text: `🆔 *Chat JID:*\n\n${message.key.remoteJid}` 
+                text: infoText
             }, { quoted: message });
         }
     },

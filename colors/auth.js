@@ -20,14 +20,20 @@ const loadCreds = async (instanceId) => {
     }
 };
 
-const normalizeId = (jid) => {
-    if (!jid) return jid;
+const normalizeJid = (jid) => {
+    if (!jid) return null;
+    // Remove device/agent suffix from JID
     jid = jid.split(':')[0];
+    // Convert pure number to JID format if needed
     return jid.includes('@') ? jid : `${jid}@s.whatsapp.net`;
 };
 
+const normalizeLid = (lid) => {
+    if (!lid) return null;
+    return lid.includes('@') ? lid : `${lid}@lid`;
+};
+
 const initBotId = async (Bloom) => {
-    // Get instance ID from Bloom object
     const instanceId = Bloom._instanceId;
     if (!instanceId) {
         console.warn('Warning: No instance ID found in Bloom object');
@@ -38,17 +44,16 @@ const initBotId = async (Bloom) => {
     let botJid, botLid;
 
     if (creds?.me) {
-        botJid = normalizeId(creds.me.id);
-        botLid = normalizeId(creds.me.lid).replace('@s.whatsapp.net', '@lid');
+        botJid = normalizeJid(creds.me.id);
+        botLid = creds.me.lid ? normalizeLid(creds.me.lid) : null;
     } else {
-        botJid = normalizeId(Bloom.user?.id);
-        botLid = Bloom.me?.lid
-            ? normalizeId(Bloom.me.lid).replace('@s.whatsapp.net', '@lid')
-            : botJid.replace('@s.whatsapp.net', '@lid');
+        botJid = normalizeJid(Bloom.user?.id);
+        botLid = Bloom.me?.lid ? normalizeLid(Bloom.me.lid) : null;
     }
 
-    // Store IDs for this instance
+    // Store both IDs for this instance
     BOT_IDS.set(instanceId, { jid: botJid, lid: botLid });
+    console.log(`Bot IDs initialized for ${instanceId}:`, { jid: botJid, lid: botLid });
 };
 
 const getBotIds = (Bloom) => {
@@ -60,9 +65,18 @@ const getBotIds = (Bloom) => {
     return BOT_IDS.get(instanceId) || { jid: null, lid: null };
 };
 
-const idsMatch = (a, b) => {
-    if (!a || !b) return false;
-    return a.split('@')[0].split(':')[0] === b.split('@')[0].split(':')[0];
+const participantMatches = (participant, targetJid, targetLid) => {
+    // First try direct JID match
+    if (normalizeJid(participant.id) === normalizeJid(targetJid)) {
+        return true;
+    }
+    
+    // If we have a LID to compare and participant has a LID property
+    if (targetLid && participant.lid) {
+        return normalizeLid(participant.lid) === normalizeLid(targetLid);
+    }
+
+    return false;
 };
 
 const fetchGroupMetadata = async (Bloom, message) => {
@@ -73,8 +87,16 @@ const fetchGroupMetadata = async (Bloom, message) => {
     }
 
     try {
-        return await Bloom.groupMetadata(groupId);
-    } catch {
+        const metadata = await Bloom.groupMetadata(groupId);
+        // Log participant IDs for debugging
+        console.log('Group participants:', metadata.participants.map(p => ({ 
+            id: p.id, 
+            lid: p.lid,
+            admin: p.admin
+        })));
+        return metadata;
+    } catch (error) {
+        console.error('Error fetching group metadata:', error);
         await Bloom.sendMessage(groupId, { text: mess.gmetafail });
         return null;
     }
@@ -85,10 +107,18 @@ const isBotAdmin = async (Bloom, message) => {
     if (!metadata) return false;
 
     const { jid: BOT_JID, lid: BOT_LID } = getBotIds(Bloom);
-    const botMatch = metadata.participants.find(p =>
-        idsMatch(p.id, BOT_JID) || (BOT_LID && idsMatch(p.id, BOT_LID))
+    const botMatch = metadata.participants.find(p => 
+        participantMatches(p, BOT_JID, BOT_LID)
     );
-    return ['admin', 'superadmin'].includes(botMatch?.admin);
+    
+    const isAdmin = ['admin', 'superadmin'].includes(botMatch?.admin);
+    console.log('Bot admin check:', { 
+        botJid: BOT_JID, 
+        botLid: BOT_LID, 
+        matchedParticipant: botMatch,
+        isAdmin 
+    });
+    return isAdmin;
 };
 
 const isSenderAdmin = async (Bloom, message) => {
@@ -96,15 +126,28 @@ const isSenderAdmin = async (Bloom, message) => {
     if (!metadata) return false;
 
     const senderId = message.key.participant || message.participant;
-    if (!senderId) return false;
+    // Try to get sender's LID from Baileys if available
+    const senderLid = message.key.lid || message.lid;
 
-    const senderMatch = metadata.participants.find(p => idsMatch(p.id, senderId));
-    return ['admin', 'superadmin'].includes(senderMatch?.admin);
+    const senderMatch = metadata.participants.find(p => 
+        participantMatches(p, senderId, senderLid)
+    );
+    
+    const isAdmin = ['admin', 'superadmin'].includes(senderMatch?.admin);
+    console.log('Sender admin check:', { 
+        senderId, 
+        senderLid,
+        matchedParticipant: senderMatch,
+        isAdmin 
+    });
+    return isAdmin;
 };
 
 const isBloomKing = (sender, message) => {
     const checkId = sender.endsWith('@g.us') ? message.key.participant : sender;
-    return idsMatch(checkId, sudochat);
+    // For superadmin, we'll check both JID and LID if available
+    return normalizeJid(checkId) === normalizeJid(sudochat) || 
+           (message.key.lid && normalizeLid(message.key.lid) === normalizeLid(sudochat));
 };
 
 const isGroupAdminContext = async (Bloom, message) => {
@@ -115,13 +158,28 @@ const isGroupAdminContext = async (Bloom, message) => {
     if (!metadata) return false;
 
     const senderId = message.key.participant || message.participant;
+    const senderLid = message.key.lid || message.lid;
+
     const botParticipant = metadata.participants.find(p =>
-        idsMatch(p.id, BOT_JID) || (BOT_LID && idsMatch(p.id, BOT_LID))
+        participantMatches(p, BOT_JID, BOT_LID)
     );
-    const senderParticipant = metadata.participants.find(p => idsMatch(p.id, senderId));
+    const senderParticipant = metadata.participants.find(p =>
+        participantMatches(p, senderId, senderLid)
+    );
 
     const botAdmin = ['admin', 'superadmin'].includes(botParticipant?.admin);
     const senderAdmin = ['admin', 'superadmin'].includes(senderParticipant?.admin);
+
+    console.log('Group admin context check:', {
+        botJid: BOT_JID,
+        botLid: BOT_LID,
+        senderId,
+        senderLid,
+        botMatch: botParticipant,
+        senderMatch: senderParticipant,
+        botAdmin,
+        senderAdmin
+    });
 
     if (!botAdmin) await Bloom.sendMessage(message.key.remoteJid, { text: mess.botadmin });
     if (!senderAdmin) await Bloom.sendMessage(message.key.remoteJid, { text: mess.youadmin });
