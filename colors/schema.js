@@ -164,18 +164,19 @@ async function createInstanceModels(instanceId) {
             await waitForConnection();
         }
 
+        // Using common collection names without instance prefixes
         const models = {
-            Pokemon: createModel(instanceId, 'Pokemon', pokemonSchema),
-            User: createModel(instanceId, 'User', userSchema),
-            Settings: createModel(instanceId, 'Settings', settingsSchema),
-            Exp: createModel(instanceId, 'Exp', expSchema),
-            AFK: createModel(instanceId, 'AFK', afkSchema),
-            TicTacToe: createModel(instanceId, 'TicTacToe', TicTacToeSchema),
-            Reminder: createModel(instanceId, 'Reminder', reminderSchema),
-            Ticket: createModel(instanceId, 'Ticket', ticketSchema),
-            Counter: createModel(instanceId, 'Counter', counterSchema),
-            UserCounter: createModel(instanceId, 'UserCounter', userCounterSchema),
-            BotSettings: createModel(instanceId, 'BotSettings', botSettingsSchema)
+            Pokemon: mongoose.model('Pokemon', pokemonSchema),
+            User: mongoose.model('User', userSchema),
+            Settings: mongoose.model('Settings', settingsSchema),
+            Exp: mongoose.model('Exp', expSchema),
+            AFK: mongoose.model('AFK', afkSchema),
+            TicTacToe: mongoose.model('TicTacToe', TicTacToeSchema),
+            Reminder: mongoose.model('Reminder', reminderSchema),
+            Ticket: mongoose.model('Ticket', ticketSchema),
+            Counter: mongoose.model('Counter', counterSchema),
+            UserCounter: mongoose.model('UserCounter', userCounterSchema),
+            BotSettings: mongoose.model('BotSettings', botSettingsSchema)
         };
 
         // Verify all models have required methods
