@@ -4,7 +4,7 @@
   "description": "WhatsApp multidevice tripple instance bots build on baileys",
   "main": "bloom.js",
   "scripts": {
-    "start": "node bloom.js",
+    "start": "pm2 start bloom.js && pm2 logs",
     "stop": "pm2 stop bloom",
     "restart": "pm2 restart bloom",
     "test": "node test.js"

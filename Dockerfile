@@ -2,12 +2,12 @@ FROM node:20-alpine
 
 RUN apk add --no-cache git
 
-WORKDIR /bloombot
+WORKDIR /bloom
 
 COPY package*.json ./
 
-RUN npm install
+RUN npm install && npm install -g pm2
 
 COPY . .
 
-CMD ["npm", "start"]
+CMD ["pm2-runtime", "start", "bloom.js"]
