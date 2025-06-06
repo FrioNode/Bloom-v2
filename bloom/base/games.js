@@ -95,7 +95,7 @@ module.exports = {
         desc: 'Check your wallet and bank balance',
         run: async (Bloom, message, fulltext) => {
             try {
-                const { User } = getInstanceModels(Bloom._instanceId);
+                const { User } = await getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 
                 const user = await getOrCreateUser(User, senderID);
@@ -134,7 +134,7 @@ module.exports = {
 
     reg: {
         type: 'game',
-        desc: 'Register to use bot features',
+        desc: 'Register to use bot features or update your name',
         usage: 'reg <name>',
         run: async (Bloom, message, fulltext) => {
             try {
@@ -148,7 +148,7 @@ module.exports = {
                 const name = fulltext.split(' ').slice(1).join(' ').trim();
                 if (!name) {
                     return await Bloom.sendMessage(message.key.remoteJid, { 
-                        text: '❌ Please provide a name for registration\nUsage: !reg <name>' 
+                        text: '❌ Please provide a name\nUsage: !reg <name>' 
                     }, { quoted: message });
                 }
 
@@ -156,7 +156,7 @@ module.exports = {
                 const models = await getInstanceModels(Bloom._instanceId);
                 if (!models) {
                     return await Bloom.sendMessage(message.key.remoteJid, { 
-                        text: '❌ Registration failed: Database connection error' 
+                        text: '❌ Database connection error' 
                     }, { quoted: message });
                 }
 
@@ -164,12 +164,22 @@ module.exports = {
 
                 try {
                     let user = await User.findById(sender);
+                    
                     if (user) {
+                        // User exists - update name only
+                        const oldName = user.name;
+                        user.name = name;
+                        await user.save();
+                        
                         return await Bloom.sendMessage(message.key.remoteJid, { 
-                            text: '❌ You are already registered!' 
+                            text: `✅ Name updated successfully!\n\n` +
+                                 `👤 Old name: ${oldName}\n` +
+                                 `👤 New name: ${name}\n\n` +
+                                 `💰 Current balance: ${user.walletBalance.toLocaleString()}`
                         }, { quoted: message });
                     }
 
+                    // New user registration
                     user = await User.create({
                         _id: sender,
                         name: name,
@@ -188,7 +198,10 @@ module.exports = {
                     });
 
                     await Bloom.sendMessage(message.key.remoteJid, { 
-                        text: `✅ Successfully registered!\n\n👤 Name: ${name}\n💰 Starting balance: 1000` 
+                        text: `✅ Successfully registered!\n\n` +
+                              `👤 Name: ${name}\n` +
+                              `💰 Starting balance: 1,000\n\n` +
+                              `Type !help to see available commands!`
                     }, { quoted: message });
 
                 } catch (err) {
@@ -211,7 +224,7 @@ module.exports = {
         desc: 'Deposit money into your bank account',
         run: async (Bloom, message, fulltext) => {
             try {
-                const { User } = getInstanceModels(Bloom._instanceId);
+                const { User } = await getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 const arg = parseFloat(fulltext.trim().split(/\s+/)[1]);
 
@@ -274,7 +287,7 @@ module.exports = {
         desc: 'Withdraw money from your bank account',
         run: async (Bloom, message, fulltext) => {
             try {
-                const { User } = getInstanceModels(Bloom._instanceId);
+                const { User } = await getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 const arg = parseFloat(fulltext.trim().split(/\s+/)[1]);
 
@@ -454,7 +467,7 @@ module.exports = {
         desc: 'View available items in the shop',
         run: async (Bloom, message) => {
             try {
-                const { User } = getInstanceModels(Bloom._instanceId);
+                const { User } = await getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 
                 const user = await getOrCreateUser(User, senderID);
@@ -661,7 +674,7 @@ module.exports = {
         desc: 'Go hunting for animals',
         run: async (Bloom, message) => {
             try {
-                const { User } = getInstanceModels(Bloom._instanceId);
+                const { User } = await getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 
                 // Get or create user
@@ -744,7 +757,7 @@ module.exports = {
         type: 'economy',
         desc: 'Go fishing for aquatic animals',
         run: async (Bloom, message) => {
-            const { User } = getInstanceModels(Bloom._instanceId);
+            const { User } = await getInstanceModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
             const currentDate = new Date();
@@ -928,7 +941,7 @@ module.exports = {
         type: 'economy',
         desc: 'Claim your daily reward',
         run: async (Bloom, message) => {
-            const { User } = getInstanceModels(Bloom._instanceId);
+            const { User } = await getInstanceModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
 
@@ -959,7 +972,7 @@ module.exports = {
         type: 'economy',
         desc: 'Sell items from your inventory',
         run: async (Bloom, message, fulltext) => {
-            const { User } = getInstanceModels(Bloom._instanceId);
+            const { User } = await getInstanceModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const arg = fulltext.trim().split(/\s+/)[1];
             const user = await User.findById(senderID);
@@ -1112,7 +1125,7 @@ module.exports = {
         type: 'economy',
         desc: 'Reset your Economy account (warning: irreversible)',
         run: async (Bloom, message) => {
-            const { User } = getInstanceModels(Bloom._instanceId);
+            const { User } = await getInstanceModels(Bloom._instanceId);
             const senderID = message.key.participant || message.key.remoteJid;
             const user = await User.findById(senderID);
 
@@ -1204,7 +1217,7 @@ module.exports = {
         desc: 'View your Pokémon collection',
         run: async (Bloom, message) => {
             try {
-                const { User } = getInstanceModels(Bloom._instanceId);
+                const { User } = await getInstanceModels(Bloom._instanceId);
                 const senderID = message.key.participant || message.key.remoteJid;
                 const user = await User.findById(senderID);
 
@@ -1233,7 +1246,6 @@ module.exports = {
         type: 'games',
         desc: 'View any Pokémon details by name or ID',
         run: async (Bloom, message, fulltext) => {
-            const { Pokemon } = getInstanceModels(Bloom._instanceId);
             const input = fulltext.trim().split(/\s+/)[1]?.toLowerCase();
             const chatId = message.key.remoteJid;
 
@@ -1362,7 +1374,7 @@ module.exports = {
     async _autoStartGame(Bloom) {
         try {
             const models = await createInstanceModels(Bloom._instanceId);
-            const { Pokemon, BotSettings } = models;
+            const { BotSettings } = models;
             let isRunning = true;
 
             // Check if this is the active instance from BotSettings
