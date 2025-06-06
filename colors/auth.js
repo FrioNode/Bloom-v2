@@ -30,8 +30,12 @@ const normalizeJid = (jid) => {
 
 const normalizeLid = (lid) => {
     if (!lid) return null;
-    return lid.includes('@') ? lid : `${lid}@lid`;
+    if (lid.includes('@lid')) {
+        return lid.split(':')[0] + '@lid';
+    }
+    return lid.split(':')[0] + '@lid';
 };
+
 
 const initBotId = async (Bloom) => {
     const instanceId = Bloom._instanceId;
