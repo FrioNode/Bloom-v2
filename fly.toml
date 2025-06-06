@@ -1,4 +1,4 @@
-app = "bloom"
+app = "bloom-v2"
 primary_region = "ams"
 
 [build]
