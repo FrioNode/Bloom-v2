@@ -133,7 +133,7 @@ module.exports = {
     },
 
     reg: {
-        type: 'game',
+        type: 'games',
         desc: 'Register to use bot features or update your name',
         usage: 'reg <name>',
         run: async (Bloom, message, fulltext) => {
