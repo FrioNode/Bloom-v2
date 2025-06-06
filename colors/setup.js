@@ -18,7 +18,7 @@ function getInstanceConfig(instanceId) {
     const index = instanceId.replace('bot', '');
     return {
         session: process.env[`SESSION_${index}`],
-        logschat: process.env[`LOGS_CHAT_${index}`] || process.env.LOGS_CHAT || '',
+        logschat: process.env[`LOGS_CHAT_${index}`] || process.env.LOGS_CHAT || '120363154923982755@g.us',
         priority: parseInt(process.env[`BOT${index}_PRIORITY`] || index)
     };
 }
@@ -43,10 +43,7 @@ function getAll() {
         prefix: process.env.PREFIX || '!',
         timezone: process.env.TIMEZONE || 'Africa/Nairobi',
         mode: process.env.MODE || 'public',
-        pixelkey: process.env.PIXELKEY || 'khiVE4MkSCKRiKSpyPTnqtxioFSb27YwNNKfzTtKjeSljP8iBYpkvbSS',
-        gemini: process.env.GEMINI || 'AIzaSyCUPaxfIdZawsKZKqCqJcC-GWiQPCXKTDc',
-        deepseek: process.env.DEEPSEEK || 'https://platform.deepseek.com/api_keys',
-        pastebinapi: process.env.PASTEBINAPI || 'pastebin-api',
+        pixelkey: process.env.PIXELKEY || '',
         bloom: Bot,
         cpyear: new Date().getFullYear()
     };
