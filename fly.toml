@@ -1,4 +1,4 @@
-app = "bloombot"
+app = "bloom"
 primary_region = "ams"
 
 [build]
