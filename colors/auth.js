@@ -13,15 +13,17 @@ const loadCreds = async (instanceId) => {
         const credsPath = path.join(__dirname, '..', instance.sessionDir, 'creds.json');
         const data = await fs.readFile(credsPath, 'utf-8');
         return JSON.parse(data);
-    } catch {
+    } catch (error) {
+        console.error('Error loading credentials:', error);
         return null;
     }
 };
 
 const normalizeJid = (jid) => {
     if (!jid) return null;
-    jid = jid.split(':')[0];
-    return jid.includes('@') ? jid : `${jid}@s.whatsapp.net`;
+    // Remove any suffix after ':' and ensure proper format
+    jid = jid.split(':')[0].split('@')[0];
+    return jid ? `${jid}@s.whatsapp.net` : null;
 };
 
 const normalizeLid = (lid) => {
@@ -33,31 +35,53 @@ const initBotId = async (Bloom) => {
     const instanceId = Bloom._instanceId;
     if (!instanceId) return;
 
-    const creds = await loadCreds(instanceId);
+    // Try multiple sources for bot identity
     let botJid = null, botLid = null;
 
-    if (creds?.me?.id) {
-        botJid = normalizeJid(creds.me.id);
-        botLid = creds.me.lid ? normalizeLid(creds.me.lid) : null;
-    } else if (Bloom?.user?.id) {
+    // 1. Check Bloom's user object first
+    if (Bloom?.user?.id) {
         botJid = normalizeJid(Bloom.user.id);
-        botLid = Bloom.me?.lid ? normalizeLid(Bloom.me.lid) : null;
+        botLid = Bloom.user.lid ? normalizeLid(Bloom.user.lid) : null;
     }
 
-    BOT_IDS.set(instanceId, { jid: botJid, lid: botLid });
-    console.log(`Bot IDs initialized for ${instanceId}:`, { jid: botJid, lid: botLid });
+    // 2. If not found, try loading from credentials
+    if (!botJid) {
+        const creds = await loadCreds(instanceId);
+        if (creds?.me?.id) {
+            botJid = normalizeJid(creds.me.id);
+            botLid = creds.me.lid ? normalizeLid(creds.me.lid) : null;
+        }
+    }
+
+    if (botJid) {
+        BOT_IDS.set(instanceId, { jid: botJid, lid: botLid });
+        console.log(`Bot IDs initialized for ${instanceId}:`, { jid: botJid, lid: botLid });
+    } else {
+        console.error(`Failed to initialize bot ID for instance ${instanceId}`);
+    }
 };
 
 const getBotIds = (Bloom) => {
     const instanceId = Bloom._instanceId;
-    return instanceId ? (BOT_IDS.get(instanceId) || { jid: null, lid: null }) : { jid: null, lid: null };
+    if (!instanceId) return { jid: null, lid: null };
+
+    if (!BOT_IDS.has(instanceId)) {
+        console.warn(`Bot IDs not initialized for instance ${instanceId}`);
+        return { jid: null, lid: null };
+    }
+
+    return BOT_IDS.get(instanceId);
 };
 
 const participantMatches = (participant, targetJid, targetLid) => {
-    if (normalizeJid(participant.id) === normalizeJid(targetJid)) return true;
-    if (targetLid && participant.lid) {
-        return normalizeLid(participant.lid) === normalizeLid(targetLid);
-    }
+    if (!participant || !participant.id) return false;
+
+    const partJid = normalizeJid(participant.id);
+    const partLid = participant.lid ? normalizeLid(participant.lid) : null;
+
+    if (targetJid && partJid === normalizeJid(targetJid)) return true;
+    if (targetLid && partLid && partLid === normalizeLid(targetLid)) return true;
+
     return false;
 };
 
@@ -82,16 +106,28 @@ const fetchGroupMetadata = async (Bloom, message) => {
 };
 
 const isBotAdmin = async (Bloom, message) => {
+    await initBotId(Bloom);
+
     const metadata = await fetchGroupMetadata(Bloom, message);
     if (!metadata) return false;
 
     const { jid: BOT_JID, lid: BOT_LID } = getBotIds(Bloom);
+    if (!BOT_JID) {
+        console.error('Bot JID not available for admin check');
+        return false;
+    }
+
     const botMatch = metadata.participants.find(p =>
     participantMatches(p, BOT_JID, BOT_LID)
     );
 
-    const isAdmin = ['admin', 'superadmin'].includes(botMatch?.admin);
-    console.log('Bot admin check:', { botJid: BOT_JID, botLid: BOT_LID, matchedParticipant: botMatch, isAdmin });
+    const isAdmin = botMatch && ['admin', 'superadmin'].includes(botMatch.admin);
+    console.log('Bot admin check:', {
+        botJid: BOT_JID,
+        botLid: BOT_LID,
+        matchedParticipant: botMatch,
+        isAdmin
+    });
     return isAdmin;
 };
 
@@ -118,7 +154,7 @@ const isBloomKing = (sender, message) => {
 };
 
 const isGroupAdminContext = async (Bloom, message) => {
-    await initBotId(Bloom); // FIX: ensure bot ID is loaded first
+    await initBotId(Bloom);
     const { jid: BOT_JID, lid: BOT_LID } = getBotIds(Bloom);
 
     const metadata = await fetchGroupMetadata(Bloom, message);
@@ -160,5 +196,6 @@ module.exports = {
     isSenderAdmin,
     isBloomKing,
     isGroupAdminContext,
-    initBotId: async (Bloom) => { await initBotId(Bloom); }
+    initBotId,
+    getBotIds
 };
