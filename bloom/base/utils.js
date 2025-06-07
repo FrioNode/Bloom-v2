@@ -9,13 +9,30 @@ const { timezone } = setup;
 // Cache for instance models and logschats
 const instanceModelsCache = new Map();
 const logschatCache = new Map();
+const modelCache = new Map();
+
+/**
+ * Get or initialize models for an instance
+ * @param {string} instanceId - The instance ID
+ * @returns {Promise<Object>} The instance models
+ */
 
 // Helper function to get models for the current instance
-function getModels(instanceId) {
-    if (!instanceModelsCache.has(instanceId)) {
-        instanceModelsCache.set(instanceId, createInstanceModels(instanceId));
+async function getInstanceModels(instanceId) {
+    let models = modelCache.get(instanceId);
+    if (!models) {
+        try {
+            models = await createInstanceModels(instanceId);
+            if (!models?.User) {
+                throw new Error(`Failed to initialize User model for instance ${instanceId}`);
+            }
+            modelCache.set(instanceId, models);
+        } catch (error) {
+            log(`Failed to initialize models for instance ${instanceId}:`, error);
+            return null;
+        }
     }
-    return instanceModelsCache.get(instanceId);
+    return models;
 }
 
 // Helper function to get logschat for the current instance
@@ -111,7 +128,7 @@ module.exports = {
                     }
 
                     try {
-                        const { Ticket } = getModels(Bloom._instanceId);
+                        const { Ticket } = await getInstanceModels(Bloom._instanceId);
                         const result = await Ticket.deleteMany(pending.query);
                         
                         await Bloom.sendMessage(sender, {
@@ -175,7 +192,7 @@ module.exports = {
         usage: 'reminder 10 Take a break',
         run: async (Bloom, message, fulltext) => {
             try {
-                const { Reminder } = getModels(Bloom._instanceId);
+                const { Reminder } = await getInstanceModels(Bloom._instanceId);
                 const args = fulltext.trim().split(' ');
                 
                 if (args.length < 3) {
@@ -250,7 +267,7 @@ async function generateTicketId(Counter) {
 }
 
 async function create(Bloom, message, fulltext, senderJid) {
-    const { Ticket, Counter } = getModels(Bloom._instanceId);
+    const { Ticket, Counter } = await getInstanceModels(Bloom._instanceId);
     const realSender = message.key.participant || senderJid;
     const args = fulltext.trim().split(' ');
     const subject = args.slice(1).join(' ');
@@ -318,7 +335,7 @@ async function create(Bloom, message, fulltext, senderJid) {
 
 async function list(Bloom, sender, isAdmin) {
     try {
-        const { Ticket } = getModels(Bloom._instanceId);
+        const { Ticket } = await getInstanceModels(Bloom._instanceId);
         const tickets = isAdmin
             ? await Ticket.find().sort({ createdAt: -1 }).lean()
             : await Ticket.find({ userId: sender }).sort({ createdAt: -1 }).lean();
@@ -355,7 +372,7 @@ async function list(Bloom, sender, isAdmin) {
 
 async function check(Bloom, message, ticketId, sender, isAdmin) {
     try {
-        const { Ticket } = getModels(Bloom._instanceId);
+        const { Ticket } = await getInstanceModels(Bloom._instanceId);
         const ticket = await Ticket.findOne(
             isAdmin ? { ticketId: ticketId } : { ticketId: ticketId, userId: sender }
         ).lean();
@@ -388,7 +405,7 @@ async function check(Bloom, message, ticketId, sender, isAdmin) {
 
 async function del(Bloom, message, ticketId, sender, isAdmin) {
     try {
-        const { Ticket } = getModels(Bloom._instanceId);
+        const { Ticket } = await getInstanceModels(Bloom._instanceId);
         const result = await Ticket.deleteOne(
             isAdmin ? { ticketId: ticketId } : { ticketId: ticketId, userId: sender }
         );
@@ -425,7 +442,7 @@ async function mark(Bloom, message, ticketId, status, sender, isAdmin) {
     }
 
     try {
-        const { Ticket } = getModels(Bloom._instanceId);
+        const { Ticket } = await getInstanceModels(Bloom._instanceId);
         const ticket = await Ticket.findOneAndUpdate(
             isAdmin ? { ticketId: ticketId } : { ticketId: ticketId, userId: sender },
             { $set: { status } },
@@ -455,7 +472,7 @@ async function clearTickets(Bloom, message, type = 'all') {
     const sender = message.key.remoteJid;
     
     try {
-        const { Ticket } = getModels(Bloom._instanceId);
+        const { Ticket } = await getInstanceModels(Bloom._instanceId);
         let query = {};
         
         switch (type.toLowerCase()) {
