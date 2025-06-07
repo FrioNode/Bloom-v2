@@ -170,15 +170,23 @@ app.get('/api/stats', async (req, res) => {
 // New API endpoint for user statistics
 app.get('/api/user-stats/:userId', async (req, res) => {
     try {
-        const { userId } = req.params;
-        const userJid = userId + `@s.whatsapp.net`;
+        let { userId } = req.params;
+        let userJid;
+
+        // Normalize input
+        if (userId.endsWith('@whatsapp.net') || userId.endsWith('@lid')) {
+            userJid = userId; // full JID provided
+        } else if (/^\d+$/.test(userId)) {
+            userJid = `${userId}@whatsapp.net`; // plain number
+        } else {
+            return res.status(400).json({ error: 'Invalid userId format' });
+        }
+
         const activeInstance = await rotationManager.getCurrentActiveInstance();
-        
         if (!activeInstance) {
             return res.status(503).json({ error: 'No active bot instance' });
         }
 
-        // Get or initialize instance models
         const models = await getInstanceModels(activeInstance);
         if (!models) {
             return res.status(500).json({ error: `Failed to get models for instance ${activeInstance}` });
@@ -186,38 +194,33 @@ app.get('/api/user-stats/:userId', async (req, res) => {
 
         const { User, Exp } = models;
 
-        try {
-            const [user, exp] = await Promise.all([
-                User.findById(userJid).lean(),
-                Exp.findOne({ jid: userJid }).lean()
-            ]);
+        const [user, exp] = await Promise.all([
+            User.findById(userJid).lean(),
+                                              Exp.findOne({ jid: userJid }).lean()
+        ]);
 
-            if (!user && !exp) {
-                return res.status(404).json({ error: 'User not found' });
-            }
-
-            const userStats = {
-                id: userJid,
-                name: user?.name,
-                economy: user ? {
-                    walletBalance: user.walletBalance || 0,
-                    bankBalance: user.bankBalance || 0,
-                    lastActivity: user.lastActivity,
-                    inventory: user.inventory || {}
-                } : null,
-                experience: exp ? {
-                    points: exp.points || 0,
-                    messageCount: exp.messageCount || 0,
-                    streak: exp.streak || 0,
-                    lastDaily: exp.lastDaily
-                } : null
-            };
-
-            res.json(userStats);
-        } catch (err) {
-            log(`Database error fetching stats for user ${userJid}:`, err);
-            return res.status(500).json({ error: 'Failed to fetch user data from database' });
+        if (!user && !exp) {
+            return res.status(404).json({ error: 'User not found' });
         }
+
+        const userStats = {
+            id: userJid,
+            name: user?.name,
+            economy: user ? {
+                walletBalance: user.walletBalance || 0,
+                bankBalance: user.bankBalance || 0,
+                lastActivity: user.lastActivity,
+                inventory: user.inventory || {}
+            } : null,
+            experience: exp ? {
+                points: exp.points || 0,
+                messageCount: exp.messageCount || 0,
+                streak: exp.streak || 0,
+                lastDaily: exp.lastDaily
+            } : null
+        };
+
+        res.json(userStats);
     } catch (error) {
         log('Error in /api/user-stats:', error);
         res.status(500).json({ error: 'Internal server error', details: error.message });
