@@ -7,171 +7,178 @@ const rotationManager = require('./rotationManager');
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
+const MAX_RETRIES = 10;
+// Connection state tracker
+const connectionStates = new Map();
 
 async function start(instanceConfig, options = {}) {
     const sessionDir = path.join(__dirname, '..', instanceConfig.sessionDir);
     const credsPath = path.join(sessionDir, 'creds.json');
 
-    if (!fs.existsSync(sessionDir)) {
-        fs.mkdirSync(sessionDir, { recursive: true }); 
+    // Initialize connection state
+    if (!connectionStates.has(instanceConfig.id)) {
+        connectionStates.set(instanceConfig.id, {
+            attempts: 0,
+            lastAttempt: 0,
+            active: false
+        });
     }
 
+    const state = connectionStates.get(instanceConfig.id);
+
+    // Check if already connecting
+    if (state.active) {
+        log(`⚠️ ${instanceConfig.id} is already connecting`);
+        return;
+    }
+
+    state.active = true;
+    state.attempts++;
+    state.lastAttempt = Date.now();
+
     try {
-        const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+        if (!fs.existsSync(sessionDir)) {
+            fs.mkdirSync(sessionDir, { recursive: true });
+        }
+
+        const { state: authState, saveCreds } = await useMultiFileAuthState(sessionDir);
         const { version, isLatest } = await fetchLatestBaileysVersion();
-        log(`${setup.botname} (${instanceConfig.id}) on Baileys V${version.join('.')}, Is latest ?: ${isLatest}`);
+        log(`${setup.botname} (${instanceConfig.id}) on Baileys V${version.join('.')}, Is latest?: ${isLatest}`);
 
         const Bloom = makeWASocket({
             version,
             logger: pino({ level: 'silent' }),
             browser: ["Bloom", "Safari", "3.3"],
-            auth: state,
+            auth: authState,
+            printQRInTerminal: false,
             getMessage: async (key) => {
-                if (store) { 
-                    const msg = await store.loadMessage(key.remoteJid, key.id);
-                    return msg?.message || undefined; 
-                } 
-                return { conversation: `${setup.botname} for whatsapp Automation` };  
-            } 
+                return { conversation: `> ${setup.botname} WhatsApp Automation` };
+            }
         });
 
         Bloom._instanceId = instanceConfig.id;
-        
+
+        // Connection state handler
         Bloom.ev.on('connection.update', async (update) => {
             const { qr, connection, lastDisconnect } = update;
 
-            if (qr) {
-                if (options.onQR) {
-                    await options.onQR(qr);
-                }
-            }
+            if (qr && options.onQR) await options.onQR(qr);
 
             if (connection === 'open') {
-                log(`✅ Connected successfully (${instanceConfig.id})`);
-                if (options.onSuccess) {
-                    options.onSuccess();
-                }
+                state.attempts = 0;
+                log(`✅ Connected (${instanceConfig.id})`);
 
-                // Initialize services sequentially with proper error handling
                 try {
-                    // Initialize command handler
-                    await initCommandHandler(Bloom);
-                    log(`✅ Command handler initialized (${instanceConfig.id})`);
-                    
-                    // Initialize reminder checker
-                    await startReminderChecker(Bloom);
-                    log(`✅ Reminder checker started (${instanceConfig.id})`);
+                    await Promise.all([
+                        initCommandHandler(Bloom),
+                                      startReminderChecker(Bloom),
+                                      initializeTicTacToe(Bloom),
+                                      require('../bloom/base/games')._autoStartGame(Bloom)
+                    ].map(p => p.catch(e => log(`⚠️ Init error:`, e))));
 
-                    // Initialize TicTacToe
-                    await initializeTicTacToe(Bloom);
-                    log(`✅ Ticktactoe cleaner started (${instanceConfig.id})`);
-
-                    // Initialize Pokemon game
-                    const { _autoStartGame } = require('../bloom/base/games');
-                    await _autoStartGame(Bloom);
-                    log(`✅ Pokemon game started (${instanceConfig.id})`);
-
-                    // Get active instance after all services are initialized
-                    const activeInstance = await rotationManager.getCurrentActiveInstance();
-                    if (instanceConfig.id === activeInstance) {
-                        log(`${setup.emoji} ${setup.botname} is now online`);
-
-                        // Get instance-specific logschat
-                        const instanceConfig = setup.instances[activeInstance];
-                        const logschat = instanceConfig?.logschat || setup.bloomchat;
-
-                        if (!setup.botname || !logschat || !setup.image) {
-                            log('⚠️ Missing essential config in colors/setup.js');
-                            log('Required: BOT_NAME, LOGS_CHAT/LOGS_CHAT_1, IMAGE');
-                            return;
-                        }
-
-                        if (mess && mess.bloom && mess.powered) {
-                            const Payload = {
-                                image: { url: setup.image },
-                                caption: mess.bloom,
-                                contextInfo: {
-                                    isForwarded: true,
-                                    forwardingScore: 2,
-                                    forwardedNewsletterMessageInfo: {
-                                        newsletterJid: setup.channelid,
-                                        newsletterName: setup.botname,
-                                        serverMessageId: -1,
-                                    },
-                                    externalAdReply: {
-                                        title: setup.botname,
-                                        body: mess.powered,
-                                        thumbnailUrl: setup.image,
-                                        sourceUrl: setup.channel,
-                                        mediaType: 1,
-                                        renderLargerThumbnail: false,
-                                    },
-                                },
-                            };
-
-                            try {
-                                await Bloom.sendMessage(logschat, Payload);
-                            } catch (error) {
-                                log('❌ Error sending startup message:', error);
-                            }
-                        }
-                    }
+                    if (options.onSuccess) options.onSuccess();
+                    await sendStartupMessage(Bloom, instanceConfig);
                 } catch (error) {
-                    log(`❌ Error initializing bot services for ${instanceConfig.id}:`, error);
-                    // Don't throw here - we want to keep the connection alive even if some services fail
+                    log(`❌ Init failed:`, error);
                 }
             }
 
             if (connection === 'close') {
-                log(`❌ Connection closed for ${instanceConfig.id}`);
+                state.active = false;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
+                log(`❌ Disconnected (${instanceConfig.id}): ${statusCode}`);
 
-                if (statusCode !== DisconnectReason.loggedOut) {
-                    if (options.onError) {
-                        options.onError(new Error(`Connection closed with status ${statusCode}`));
-                    }
-                    log(`♻️ Attempting reconnect for ${instanceConfig.id}...`);
-                    start(instanceConfig, options);
-                } else {
-                    console.warn(`🚫 ${instanceConfig.id} has been logged out.`);
-                    if (options.onError) {
-                        options.onError(new Error('Logged out'));
-                    }
+                if (statusCode === DisconnectReason.loggedOut) {
+                    log(`🚫 Logged out`);
+                    if (options.onError) options.onError(new Error('Logged out'));
+                    return;
                 }
+
+                if (state.attempts >= MAX_RETRIES) {
+                    log(`🛑 Max retries reached`);
+                    return;
+                }
+
+                const delay = Math.min(5000 * Math.pow(2, state.attempts), 60000);
+                setTimeout(() => !state.active && start(instanceConfig, options), delay);
             }
         });
 
-        Bloom.ev.on('creds.update', saveCreds);
-
-        // Add message handler
-        Bloom.ev.on('messages.upsert', async ({ messages }) => {
-            try {
-                const message = messages[0];
-                if (!message) return;
-                
-                if (message.key && message.key.remoteJid === 'status@broadcast') return;
-                if (message.key.fromMe) return;
-
-                await bloomCmd(Bloom, message);
-            } catch (error) {
-                log(`Error handling message in ${instanceConfig.id}:`, error);
-            }
+        // Creds and message handlers
+        Bloom.ev.on('creds.update', creds => {
+            saveCreds(creds).catch(e => log('❌ Creds save failed:', e));
         });
+        Bloom.ev.on('messages.upsert', handleMessages(Bloom, instanceConfig));
 
         return {
             instance: Bloom,
             shutdown: async () => {
-                await Bloom.logout();
-                log(`Instance ${instanceConfig.id} shut down successfully`);
+                state.active = false;
+                await Bloom.end();
+                log(`🛑 ${instanceConfig.id} shut down successfully`);
             }
         };
+
     } catch (error) {
-        log(`Critical Error in instance ${instanceConfig.id}:`, error);
-        if (options.onError) {
-            options.onError(error);
-        }
-        throw error;
+        state.active = false;
+        log(`💥 Critical error in ${instanceConfig.id}:`, error);
+        if (options.onError) options.onError(error);
+
+        // Retry with backoff
+        const delay = Math.min(5000 * state.attempts, 60000);
+        setTimeout(() => start(instanceConfig, options), delay);
     }
 }
 
-module.exports = { start }; 
+// Helper function for startup message
+async function sendStartupMessage(Bloom, instanceConfig) {
+    try {
+        const activeInstance = await rotationManager.getCurrentActiveInstance();
+        if (instanceConfig.id !== activeInstance) return;
+
+        const instanceSettings = setup.instances[activeInstance]; // Fixed shadowing
+        const logschat = instanceSettings?.logschat || setup.bloomchat;
+
+        if (!logschat || !setup.image) return;
+
+        await Bloom.sendMessage(logschat, {
+            image: { url: setup.image },
+            caption: mess.bloom || '',
+            contextInfo: {
+                    isForwarded: true,
+                    forwardingScore: 0,
+                        forwardedNewsletterMessageInfo: {
+                            newsletterJid: setup.channelid,
+                            newsletterName: setup.botname,
+                            serverMessageId: -1,
+                        },
+                        externalAdReply: {
+                            title: setup.botname,
+                            body: mess.powered,
+                            thumbnailUrl: setup.image,
+                            sourceUrl: setup.channel,
+                            mediaType: 1,
+                            renderLargerThumbnail: false,
+                        },
+                },
+            });
+        }
+ catch (error) {
+    log('❌ Startup failed:', error);
+}
+}
+// Message handler factory
+function handleMessages(Bloom, instanceConfig) {
+    return async ({ messages }) => {
+        try {
+            const message = messages[0];
+            if (!message || message.key?.fromMe || message.key?.remoteJid === 'status@broadcast') return;
+
+            await bloomCmd(Bloom, message);
+        } catch (error) {
+            log(`📨 Message handling error in ${instanceConfig.id}:`, error);
+        }
+    };
+}
+
+module.exports = { start };
