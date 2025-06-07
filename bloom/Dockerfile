@@ -4,10 +4,9 @@ RUN apk add --no-cache git
 
 WORKDIR /bloom
 
-COPY package*.json ./
-
+COPY ../package*.json ./
 RUN npm install && npm install -g pm2
 
-COPY . .
+COPY ../ ./
 
-CMD ["pm2-runtime", "start", "bloom.js"]
+CMD ["pm2-runtime", "start", "src/bloom.js"]
