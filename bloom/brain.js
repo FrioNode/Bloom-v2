@@ -82,7 +82,7 @@ async function loadCommands() {
 
 async function bloomCm(Bloom, message, fulltext, commands) {
     const senderJid = message.key?.participant || message.key?.remoteJid;
-    if (senderJid && Bloom._instanceId) await trackUsage(senderJid, Bloom._instanceId);
+    if (senderJid && Bloom._instanceId) await trackUsage(message, Bloom._instanceId);
 
     let commandName = fulltext.split(' ')[0].toLowerCase();
     const commandModule = commands[commandName];
