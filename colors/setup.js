@@ -28,6 +28,7 @@ function getAll() {
         mongo: process.env.MONGODB_URI || process.env.MONGO,
         node: process.env.NODE_ENV || 'development',
         sudochat: `${process.env.OWNERNUMBER || '254718241545'}@s.whatsapp.net`,
+        sudolid: process.env.OWNERLID || "93282663153890@lid",
         devname: process.env.DEVNAME || 'FrioNode',
         ownername: process.env.OWNERNAME || 'Benson',
         bloomchat: process.env.BLOOMCHAT || '120363154923982755@g.us',

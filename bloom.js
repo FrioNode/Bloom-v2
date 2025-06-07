@@ -52,14 +52,14 @@ async function getInstanceStats() {
             throw new Error(`Failed to get models for instance ${activeInstance}`);
         }
 
-        const { User, Exp } = models;
+        const { User, Exp, Settings } = models;
 
         try {
             // Get database statistics
             const [totalUsers, activeUsers24h, totalGroups, commandsToday] = await Promise.all([
                 User.countDocuments(),
                 User.find({ lastActivity: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } }).countDocuments(),
-                User.distinct('groups').then(groups => groups.length),
+                Settings.countDocuments(),
                 Exp.find({ updatedAt: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } }).countDocuments()
             ]);
 

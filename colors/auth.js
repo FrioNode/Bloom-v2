@@ -1,4 +1,4 @@
-const { sudochat } = require('./setup');
+const { sudochat, sudolid } = require('./setup');
 const mess = require('./mess');
 const fs = require('fs').promises;
 const path = require('path');
@@ -75,13 +75,17 @@ const getBotIds = (Bloom) => {
 
 const participantMatches = (participant, targetJid, targetLid) => {
     if (!participant || !participant.id) return false;
-
-    const partJid = normalizeJid(participant.id);
-    const partLid = participant.lid ? normalizeLid(participant.lid) : null;
-
-    if (targetJid && partJid === normalizeJid(targetJid)) return true;
-    if (targetLid && partLid && partLid === normalizeLid(targetLid)) return true;
-
+    if (targetJid && (
+        participant.id === targetJid || // Exact match
+        normalizeJid(participant.id) === normalizeJid(targetJid) // Normalized
+    )) return true;
+    if (targetLid && (
+        participant.id === targetLid || // Exact LID match
+        (participant.lid && normalizeLid(participant.lid) === normalizeLid(targetLid)) // Normalized
+    )) return true;
+    if (targetLid && participant.id.endsWith('@lid') && participant.id === targetLid) {
+        return true;
+    }
     return false;
 };
 
@@ -149,9 +153,12 @@ const isSenderAdmin = async (Bloom, message) => {
 
 const isBloomKing = (sender, message) => {
     const checkId = sender.endsWith('@g.us') ? message.key.participant : sender;
-    return normalizeJid(checkId) === normalizeJid(sudochat) ||
-    (message.key.lid && normalizeLid(message.key.lid) === normalizeLid(sudochat));
-};
+    return (
+        normalizeJid(checkId) === normalizeJid(sudochat) ||
+        (message.key.lid && normalizeLid(message.key.lid) === normalizeLid(sudolid)) ||
+        (checkId.endsWith('@lid') && checkId === sudolid)
+    );
+}
 
 const isGroupAdminContext = async (Bloom, message) => {
     await initBotId(Bloom);
