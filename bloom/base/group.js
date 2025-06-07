@@ -14,6 +14,33 @@ async function getModels(instanceId) {
     return instanceModelsCache.get(instanceId);
 }
 
+const loadBotCreds = async (instanceId) => {
+    try {
+        const instance = config.instances.find(i => i.id === instanceId);
+        if (!instance) return null;
+
+        const credsPath = path.join(__dirname, '../..', instance.sessionDir, 'creds.json');
+        const data = await fs.readFile(credsPath, 'utf-8');
+        return JSON.parse(data);
+    } catch {
+        return null;
+    }
+}
+
+const normalizeJid = (jid) => {
+    if (!jid) return 'Not available';
+    // Remove device suffix and normalize
+    return jid.split(':')[0] + '@' + jid.split('@')[1];
+};
+
+const normalizeLid = (lid) => {
+    if (!lid) return 'Not available';
+    // Remove device suffix for LID
+    return lid.split(':')[0] + '@lid';
+};
+
+
+
 const toggles = {
     antilink: 'antiLink',
     noimage: 'noImage',
@@ -375,6 +402,9 @@ module.exports = {
                 run: async (Bloom, message, fulltext) => {
                     const jid = message.key.remoteJid;
                     const sender = message.key.participant || message.key.remoteJid;
+                    const creds = loadBotCreds(Bloom._instanceId);
+                    const botJid = normalizeJid(creds?.me?.id || Bloom.user?.id);
+                    const botLid = normalizeLid(creds?.me?.lid || Bloom.me?.lid);
 
                     // ✅ Mandatory permission check
                     const allowed = await isGroupAdminContext(Bloom, message);
@@ -390,7 +420,7 @@ module.exports = {
                     try {
                         const metadata = await Bloom.groupMetadata(jid);
                         const groupOwner = metadata.owner || metadata.participants.find(p => p.admin === 'superadmin')?.id;
-                        const botId = Bloom.user.id.split(':')[0] + '@s.whatsapp.net';
+                        const botId = botJid || botLid;
 
                         // 🧹 Demote all admins (except owner and bot)
                         for (const p of metadata.participants) {

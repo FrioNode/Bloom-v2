@@ -85,13 +85,15 @@ const createProgressBar = (percent) => {
 const normalizeJid = (jid) => {
     if (!jid) return 'Not available';
     // Remove device suffix and normalize
-    return jid.split(':')[0] + '@' + jid.split('@')[1];
+    const [user, server] = jid.split('@');
+    return user.split(':')[0] + '@' + server;
 };
 
 const normalizeLid = (lid) => {
     if (!lid) return 'Not available';
-    // Remove device suffix for LID
-    return lid.split(':')[0] + '@lid';
+    // Remove device suffix and ensure proper @lid format
+    const base = lid.split(':')[0];
+    return base.endsWith('@lid') ? base : base + '@lid';
 };
 
 const loadBotCreds = async (instanceId) => {
