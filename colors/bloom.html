@@ -338,8 +338,7 @@
         if (data.uptime) {
             document.getElementById('uptime-value').textContent = 
                 `${data.uptime.days}d ${data.uptime.hours}h ${data.uptime.minutes}m ${data.uptime.seconds}s`;
-            document.getElementById('runtime').innerText =
-                `BloomBot has been active for: ${data.uptime.days}d ${data.uptime.hours}h ${data.uptime.minutes}m ${data.uptime.seconds}s`;
+          //  document.getElementById('runtime').innerText = `BloomBot has been active for: ${data.uptime.days}d ${data.uptime.hours}h ${data.uptime.minutes}m ${data.uptime.seconds}s`;
             uptimeSeconds = 
                 data.uptime.days * 86400 + 
                 data.uptime.hours * 3600 + 
